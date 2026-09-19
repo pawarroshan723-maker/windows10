@@ -139,6 +139,10 @@ cleanup_advanced.bat -auto
 
 ## Versioning
 
+- **v3.2.4** (2026-09-19) — Hardening: the summary
+  screen's auto-mode exit moved to its own label, so a manual
+  run can never be killed from that screen (protects against
+  corrupted downloads of that block).
 - **v3.2.3** (2026-09-19) — Bug fix: option I (keyboard)
   reset Filter Keys in the wrong registry key; it now writes to
   `Keyboard Response` (the key Windows actually reads).

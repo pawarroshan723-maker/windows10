@@ -3,7 +3,7 @@ setlocal EnableExtensions
 title Advanced System Care - Windows 10 / 11
 
 :: ================================================================
-::  ADVANCED SYSTEM CARE  v3.2.3
+::  ADVANCED SYSTEM CARE  v3.2.4
 ::  (Cleanup + Repair + Services + Registry + QuickFix + Tweaks
 ::   + ONE-CLICK REPAIR ALL)
 :: ---------------------------------------------------------------
@@ -50,6 +50,11 @@ title Advanced System Care - Windows 10 / 11
 ::   * NEW     -auto flag: unattended mode (used by the scheduled
 ::             task, or manually: cleanup_advanced.bat -auto)
 ::   * NEW     auto runs log to %SystemDrive%\ASC_Logs\Cleanup.log
+::  v3.2.4 (2026-09-19):
+::   * HARDEN  manual runs can no longer exit from the summary
+::             screen (auto-mode exit moved to its own label) - a
+::             corrupted download of that block could not kill the
+::             window anymore
 ::  v3.2.3 (2026-09-19):
 ::   * FIX     option I (keyboard) wrote Filter Keys to the wrong
 ::             registry key - now uses Keyboard Response (correct)
@@ -259,7 +264,7 @@ if defined AUTO_MODE goto RUN_AUTO
 cls
 echo.
 echo  %C_H%==================================================================
-echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.2.3%C_H%
+echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.2.4%C_H%
 echo  %C_H%==================================================================%C_RESET%
 echo.
 echo    %C_OK%[R]%C_RESET% %C_HEAL%ONE-CLICK REPAIR ALL%C_RESET%  %C_DIM%- full automatic maintenance (30-90 min)%C_RESET%
@@ -995,7 +1000,7 @@ exit /b 0
 cls
 echo.
 echo  %C_H%------------------------------------------------------------------
-echo  %C_H%        QUICK FIXES for common problems  %C_DIM%v3.2.3%C_H%
+echo  %C_H%        QUICK FIXES for common problems  %C_DIM%v3.2.4%C_H%
 echo  %C_H%------------------------------------------------------------------%C_RESET%
 echo.
 echo    %C_OK%[1]%C_RESET% %C_INFO%Printer not printing%C_RESET%    %C_DIM%- clear stuck queue + restart spooler%C_RESET%
@@ -1573,12 +1578,12 @@ echo   some files locked by running apps are skipped - normal
 echo   freed space is approximate; other apps also write to disk
 echo  -------------------------------------------------------------%C_RESET%
 echo.
-if defined AUTO_MODE (
-    >>"%LOG_FILE%" echo ---- AUTO CARE (unattended) finished %DATE% %TIME% ----
-    exit /b 0
-)
+if defined AUTO_MODE goto END_AUTO
 pause
 goto MENU
+:END_AUTO
+>>"%LOG_FILE%" echo ---- AUTO CARE (unattended) finished %DATE% %TIME% ----
+exit /b 0
 
 :DISKINFO
 cls
