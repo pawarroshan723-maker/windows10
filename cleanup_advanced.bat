@@ -3,7 +3,7 @@ setlocal EnableExtensions
 title Advanced System Care - Windows 10 / 11
 
 :: ================================================================
-::  ADVANCED SYSTEM CARE  v3.0.1
+::  ADVANCED SYSTEM CARE  v3.0.2
 ::  (Cleanup + Repair + Services + Registry + QuickFix + Tweaks
 ::   + ONE-CLICK REPAIR ALL)
 :: ---------------------------------------------------------------
@@ -37,6 +37,11 @@ title Advanced System Care - Windows 10 / 11
 ::             auto" was logged and the real service went unfixed).
 ::             Bad services are now read from a list file, the flag
 ::             is an env var, and unknown service names are skipped.
+::  v3.0.2 (2026-09-19, field-report fix):
+::   * FIXED   AudioEndpointBuilder probe line - missing space between
+::             the two quoted arguments (a v2.9 bug) made cmd merge
+::             them, so the service was never actually checked and the
+::             scan printed a bogus '[ --- ] AUTO - not installed'.
 :: ---------------------------------------------------------------
 ::  COLOR CODING SCHEME (ANSI 256-color safe):
 ::    CYAN    = headers and structure        GREEN  = success
@@ -210,7 +215,7 @@ for /f %%a in ('powershell -NoProfile -Command "(Get-CimInstance -Namespace root
 cls
 echo.
 echo  %C_H%==================================================================
-echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.0.1%C_H%
+echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.0.2%C_H%
 echo  %C_H%==================================================================%C_RESET%
 echo.
 echo    %C_OK%[R]%C_RESET% %C_HEAL%ONE-CLICK REPAIR ALL%C_RESET%  %C_DIM%- full automatic maintenance (30-90 min)%C_RESET%
@@ -458,7 +463,7 @@ call :svc_probe "CryptSvc"            "Cryptographic Services"            AUTO
 call :svc_probe "MpsSvc"              "Windows Defender Firewall"         AUTO
 call :svc_probe "WinDefend"           "Windows Defender Antivirus"        AUTO
 call :svc_probe "Audiosrv"            "Windows Audio"                     AUTO
-call :svc_probe "AudioEndpointBuilder""Audio Endpoint Builder"            AUTO
+call :svc_probe "AudioEndpointBuilder"  "Audio Endpoint Builder"          AUTO
 call :svc_probe "Themes"              "Themes"                            AUTO
 call :svc_probe "Spooler"             "Print Spooler"                     AUTO
 call :svc_probe "WSearch"             "Windows Search"                    AUTO
