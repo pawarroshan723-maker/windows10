@@ -3,7 +3,7 @@ setlocal EnableExtensions
 title Advanced System Care - Windows 10 / 11
 
 :: ================================================================
-::  ADVANCED SYSTEM CARE  v3.2
+::  ADVANCED SYSTEM CARE  v3.2.1
 ::  (Cleanup + Repair + Services + Registry + QuickFix + Tweaks
 ::   + ONE-CLICK REPAIR ALL)
 :: ---------------------------------------------------------------
@@ -50,6 +50,9 @@ title Advanced System Care - Windows 10 / 11
 ::   * NEW     -auto flag: unattended mode (used by the scheduled
 ::             task, or manually: cleanup_advanced.bat -auto)
 ::   * NEW     auto runs log to %SystemDrive%\ASC_Logs\Cleanup.log
+::  v3.2.1 (2026-09-19):
+::   * FIX     menu 9 key mapping was scrambled in v3.2 (A-I and
+::             0 routed to the wrong tools) - keys now map correctly
 ::  v3.2 (2026-09-19):
 ::   * NEW     TROUBLESHOOTING section in menu 9 (keys A-I):
 ::             DNS fix (public/automatic/flush + test), network
@@ -249,7 +252,7 @@ if defined AUTO_MODE goto RUN_AUTO
 cls
 echo.
 echo  %C_H%==================================================================
-echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.2%C_H%
+echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.2.1%C_H%
 echo  %C_H%==================================================================%C_RESET%
 echo.
 echo    %C_OK%[R]%C_RESET% %C_HEAL%ONE-CLICK REPAIR ALL%C_RESET%  %C_DIM%- full automatic maintenance (30-90 min)%C_RESET%
@@ -1011,25 +1014,25 @@ echo    %C_OK%[I]%C_RESET% %C_INFO%Keyboard acts weird%C_RESET%      %C_DIM%- re
 echo    %C_OK%[0]%C_RESET% %C_INFO%Back to main menu%C_RESET%
 echo.
 choice /c 123456789ABCDEFGHI0 /n /m "  Choose a fix [1-9, A-I, 0=Back]: "
-if errorlevel 19 goto FIX_PRINTER
-if errorlevel 18 goto FIX_AUDIO
-if errorlevel 17 goto FIX_BT
-if errorlevel 16 goto FIX_STORE
-if errorlevel 15 goto FIX_TIME
-if errorlevel 14 goto FIX_SEARCH
-if errorlevel 13 goto FIX_CHKDSK
-if errorlevel 12 goto FIX_SRESTORE
-if errorlevel 11 goto FIX_MEM
+if errorlevel 19 goto MENU
+if errorlevel 18 goto FIX_FILTERKEYS
+if errorlevel 17 goto FIX_LICENSE
+if errorlevel 16 goto FIX_BATT
+if errorlevel 15 goto FIX_PROCS
+if errorlevel 14 goto FIX_STARTUP
+if errorlevel 13 goto FIX_CRASH
+if errorlevel 12 goto FIX_DSKH
+if errorlevel 11 goto FIX_NETADAPT
 if errorlevel 10 goto FIX_DNS
-if errorlevel 9 goto FIX_NETADAPT
-if errorlevel 8 goto FIX_DSKH
-if errorlevel 7 goto FIX_CRASH
-if errorlevel 6 goto FIX_STARTUP
-if errorlevel 5 goto FIX_PROCS
-if errorlevel 4 goto FIX_BATT
-if errorlevel 3 goto FIX_LICENSE
-if errorlevel 2 goto FIX_FILTERKEYS
-if errorlevel 1 goto FIXMENU
+if errorlevel 9 goto FIX_MEM
+if errorlevel 8 goto FIX_SRESTORE
+if errorlevel 7 goto FIX_CHKDSK
+if errorlevel 6 goto FIX_SEARCH
+if errorlevel 5 goto FIX_TIME
+if errorlevel 4 goto FIX_STORE
+if errorlevel 3 goto FIX_BT
+if errorlevel 2 goto FIX_AUDIO
+if errorlevel 1 goto FIX_PRINTER
 
 :FIX_PRINTER
 cls

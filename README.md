@@ -139,6 +139,9 @@ cleanup_advanced.bat -auto
 
 ## Versioning
 
+- **v3.2.1** (2026-09-19) — Bug fix: in v3.2 the menu 9
+  keyboard mapping was scrambled (keys 1-9, A-I and 0 all routed to
+  the wrong tools). Keys now map correctly.
 - **v3.2** (2026-09-19) — Troubleshooting section in menu 9 (keys A–I):
   DNS fix, network adapter enable/restart, disk SMART health, crash
   analysis, startup report, top processes, battery report, license
