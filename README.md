@@ -139,6 +139,9 @@ cleanup_advanced.bat -auto
 
 ## Versioning
 
+- **v3.2.3** (2026-09-19) — Bug fix: option I (keyboard)
+  reset Filter Keys in the wrong registry key; it now writes to
+  `Keyboard Response` (the key Windows actually reads).
 - **v3.2.2** (2026-09-19) — No functional change: the
   version number is now shown on the Quick Fixes (menu 9) screen too,
   so it is easy to see which copy of the file you are running.
