@@ -3,7 +3,7 @@ setlocal EnableExtensions
 title Advanced System Care - Windows 10 / 11
 
 :: ================================================================
-::  ADVANCED SYSTEM CARE  v3.2.1
+::  ADVANCED SYSTEM CARE  v3.2.2
 ::  (Cleanup + Repair + Services + Registry + QuickFix + Tweaks
 ::   + ONE-CLICK REPAIR ALL)
 :: ---------------------------------------------------------------
@@ -50,6 +50,10 @@ title Advanced System Care - Windows 10 / 11
 ::   * NEW     -auto flag: unattended mode (used by the scheduled
 ::             task, or manually: cleanup_advanced.bat -auto)
 ::   * NEW     auto runs log to %SystemDrive%\ASC_Logs\Cleanup.log
+::  v3.2.2 (2026-09-19):
+::   * NOTE    no functional change - version number is now shown on
+::             the Quick Fixes (menu 9) screen too, so you can always
+::             see which copy of the file you are running
 ::  v3.2.1 (2026-09-19):
 ::   * FIX     menu 9 key mapping was scrambled in v3.2 (A-I and
 ::             0 routed to the wrong tools) - keys now map correctly
@@ -252,7 +256,7 @@ if defined AUTO_MODE goto RUN_AUTO
 cls
 echo.
 echo  %C_H%==================================================================
-echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.2.1%C_H%
+echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.2.2%C_H%
 echo  %C_H%==================================================================%C_RESET%
 echo.
 echo    %C_OK%[R]%C_RESET% %C_HEAL%ONE-CLICK REPAIR ALL%C_RESET%  %C_DIM%- full automatic maintenance (30-90 min)%C_RESET%
@@ -988,7 +992,7 @@ exit /b 0
 cls
 echo.
 echo  %C_H%------------------------------------------------------------------
-echo  %C_H%        QUICK FIXES for common problems%C_H%
+echo  %C_H%        QUICK FIXES for common problems  %C_DIM%v3.2.2%C_H%
 echo  %C_H%------------------------------------------------------------------%C_RESET%
 echo.
 echo    %C_OK%[1]%C_RESET% %C_INFO%Printer not printing%C_RESET%    %C_DIM%- clear stuck queue + restart spooler%C_RESET%

@@ -139,6 +139,9 @@ cleanup_advanced.bat -auto
 
 ## Versioning
 
+- **v3.2.2** (2026-09-19) — No functional change: the
+  version number is now shown on the Quick Fixes (menu 9) screen too,
+  so it is easy to see which copy of the file you are running.
 - **v3.2.1** (2026-09-19) — Bug fix: in v3.2 the menu 9
   keyboard mapping was scrambled (keys 1-9, A-I and 0 all routed to
   the wrong tools). Keys now map correctly.
