@@ -34,9 +34,35 @@ Windows built-in (`sfc`, `dism`, `powercfg`, `reg`, `sc`, `netsh`, …).
 | `A` | **Windows tweaks** — each with Apply/Restore: Photo Viewer, extensions, hidden files, Take Ownership, shortcut arrows, Bing off, menu speed, GameDVR off, lock screen |
 | `B` | **Optimization** — drive TRIM/defrag, power plans, startup delay, Explorer restart, hibernation on/off |
 | `C` | **Disk space overview** |
+| `D` | **Auto-Care scheduler** — enable/status/remove weekly unattended maintenance |
 
 Every destructive question is a real Y/N confirmation. `N` actually cancels
 (fixed in v3.0 — in v2.9 every "No" silently fell through as "Yes").
+
+## Auto-Care (scheduled unattended maintenance) — menu `D`
+
+Lets the script maintain itself on a schedule, with no prompts.
+
+- **How it works** — a Windows scheduled task (`ASC_AutoCare`) runs
+  `cleanup_advanced.bat -auto` weekly. The `-auto` flag runs the **full
+  REPAIR ALL pipeline unattended**: services → cleanup → DISM/SFC → drive
+  optimize, then exits. No menu, no Y/N prompts.
+- **Runs as SYSTEM** — so it works even when you're logged off and stores
+  **no password** (nothing for an attacker to read).
+- **Default time** — 02:00 on the day you pick. Change the day/time later in
+  Task Scheduler → `ASC_AutoCare` if you prefer.
+- **Restore point first** — every run still creates one, exactly like a
+  manual run.
+- **Log** — auto runs run as SYSTEM, so they log to a machine-wide file:
+  `%SystemDrive%\ASC_Logs\Cleanup.log` (e.g. `C:\ASC_Logs\Cleanup.log`).
+  Manual (your-account) runs still log to `%USERPROFILE%\CleanupLogs\`.
+- **Manage it** — menu `D`: `1` enable, `2` show status, `3` remove.
+
+Run it unattended manually any time with:
+
+```bat
+cleanup_advanced.bat -auto
+```
 
 ## Safety model (v3.0)
 
@@ -96,6 +122,13 @@ Every destructive question is a real Y/N confirmation. `N` actually cancels
 
 ## Versioning
 
+- **v3.1** (2026-09-19) — Auto-Care: scheduled unattended maintenance
+  (menu `D`), `-auto` flag, auto runs log to `C:\ASC_Logs\`.
+- **v3.0.2** (2026-09-19) — fixed the AudioEndpointBuilder probe line
+  (pre-existing v2.9 bug: missing space made the service uncheckable).
+- **v3.0.1** (2026-09-19) — fixed the phantom `auto` service in the
+  REPAIR ALL service loop (now a deterministic list file + `SVC_AUTO`
+  flag + unknown-service guard).
 - **v3.0** (2026-09-19) — security/quality audit fixes: working Y/N
   confirmations, correct `DisableCMD` value, restore point + registry backup,
   guarded deletes, no `$Recycle.bin` folder deletion, real error codes,

@@ -3,7 +3,7 @@ setlocal EnableExtensions
 title Advanced System Care - Windows 10 / 11
 
 :: ================================================================
-::  ADVANCED SYSTEM CARE  v3.0.2
+::  ADVANCED SYSTEM CARE  v3.1
 ::  (Cleanup + Repair + Services + Registry + QuickFix + Tweaks
 ::   + ONE-CLICK REPAIR ALL)
 :: ---------------------------------------------------------------
@@ -42,6 +42,14 @@ title Advanced System Care - Windows 10 / 11
 ::             the two quoted arguments (a v2.9 bug) made cmd merge
 ::             them, so the service was never actually checked and the
 ::             scan printed a bogus '[ --- ] AUTO - not installed'.
+::  v3.1 (2026-09-19):
+::   * NEW     AUTO-CARE (menu D): schedule a weekly unattended run of
+::             the full REPAIR ALL pipeline. Runs as SYSTEM (works
+::             logged-off, no password stored), default 02:00, task
+::             name ASC_AutoCare. Status/remove from the same menu.
+::   * NEW     -auto flag: unattended mode (used by the scheduled
+::             task, or manually: cleanup_advanced.bat -auto)
+::   * NEW     auto runs log to %SystemDrive%\ASC_Logs\Cleanup.log
 :: ---------------------------------------------------------------
 ::  COLOR CODING SCHEME (ANSI 256-color safe):
 ::    CYAN    = headers and structure        GREEN  = success
@@ -74,12 +82,24 @@ title Advanced System Care - Windows 10 / 11
 ::  LOG          ONE file: %USERPROFILE%\CleanupLogs\Cleanup.log
 :: ================================================================
 
+:: ---------- 1a. Unattended AUTO-CARE mode (-auto) ----------
+:: -auto = run the full REPAIR ALL pipeline with no prompts. Used by
+:: the scheduled auto-care task (menu D) or manually:
+::   cleanup_advanced.bat -auto
+:: ASC_EXTRA carries the flag through the UAC / color relaunches.
+set "AUTO_MODE="
+set "ASC_EXTRA="
+for %%a in (%*) do if /i "%%a"=="-auto" (
+    set "AUTO_MODE=1"
+    set "ASC_EXTRA= -auto"
+)
+
 :: ---------- 1. Elevate to Administrator if needed ----------
 net session >nul 2>&1
 if %errorlevel% neq 0 (
     echo.
     echo   Requesting Administrator privileges - please accept the UAC prompt...
-    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList '-vt', '-orig=%USERNAME%' -Verb RunAs } catch { exit 1 }" >nul 2>&1
+    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList '-vt -orig=%USERNAME%%ASC_EXTRA%' -Verb RunAs } catch { exit 1 }" >nul 2>&1
     if errorlevel 1 (
         echo.
         echo   Elevation was cancelled - Administrator rights are REQUIRED.
@@ -96,8 +116,8 @@ if %errorlevel% neq 0 (
 :: guards against relaunching twice.
 reg query "HKCU\Console" /v VirtualTerminalLevel 2>nul | find "0x1" >nul 2>&1
 if errorlevel 1 reg add "HKCU\Console" /v VirtualTerminalLevel /t REG_DWORD /d 1 /f >nul 2>&1
-if /i not "%~1"=="-vt" (
-    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList '-vt', '-orig=%USERNAME%' -Verb RunAs } catch { exit 1 }" >nul 2>&1
+if /i not "%~1"=="-vt" if not defined AUTO_MODE (
+    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList '-vt -orig=%USERNAME%%ASC_EXTRA%' -Verb RunAs } catch { exit 1 }" >nul 2>&1
     if not errorlevel 1 exit /b
     echo.
     echo   Could not relaunch for color support - continuing without it.
@@ -132,7 +152,12 @@ if defined ESC (
 :: ---------- 3. Initialise log file ----------
 set "SYS_DRIVE=%SystemDrive:~0,1%"
 for /f %%a in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd_HH-mm-ss"') do set "TS=%%a"
-set "LOG_DIR=%USERPROFILE%\CleanupLogs"
+:: scheduled auto-care runs as SYSTEM - use a machine-wide log folder
+if /i "%USERNAME%"=="SYSTEM" (
+    set "LOG_DIR=%SystemDrive%\ASC_Logs"
+) else (
+    set "LOG_DIR=%USERPROFILE%\CleanupLogs"
+)
 set "LOG_FILE=%LOG_DIR%\Cleanup.log"
 set "HEAL_FLAG=%LOG_DIR%\dism_heal_armed.flg"
 set "SVC_BAD_FILE=%LOG_DIR%\svc_bad.txt"
@@ -153,6 +178,7 @@ if exist "%LOG_FILE%" for %%F in ("%LOG_FILE%") do if %%~zF GTR 1048576 del /q "
 >>"%LOG_FILE%" echo  System Care session started: %DATE% %TIME%  (session %TS%)
 >>"%LOG_FILE%" echo  Running as: %USERNAME%  -  Administrator: YES
 ver | find /v "" >>"%LOG_FILE%"
+if defined AUTO_MODE >>"%LOG_FILE%" echo  Mode: UNATTENDED AUTO CARE (-auto)
 >>"%LOG_FILE%" echo ===============================================
 if defined REBOOT_PENDING >>"%LOG_FILE%" echo  NOTE: Windows reports a PENDING REBOOT - the DISM cleanup task will be skipped.
 if defined PREV_DISM_FAIL >>"%LOG_FILE%" echo  NOTE: previous session had a DISM failure - AUTO-HEAL is armed.
@@ -211,11 +237,12 @@ set "TPAV="
 for /f %%a in ('powershell -NoProfile -Command "(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -notmatch 'Defender' -and ([int]$_.ProductState -band 100) -ne 0 }).Count" 2^>nul') do if "%%a" neq "" if "%%a" neq "0" set "TPAV=1"
 
 :: ---------- 4. Main menu ----------
+if defined AUTO_MODE goto RUN_AUTO
 :MENU
 cls
 echo.
 echo  %C_H%==================================================================
-echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.0.2%C_H%
+echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.1%C_H%
 echo  %C_H%==================================================================%C_RESET%
 echo.
 echo    %C_OK%[R]%C_RESET% %C_HEAL%ONE-CLICK REPAIR ALL%C_RESET%  %C_DIM%- full automatic maintenance (30-90 min)%C_RESET%
@@ -239,6 +266,7 @@ echo    %C_HEAL%[B]%C_RESET% %C_OK%Optimization tools%C_RESET%  %C_DIM%- drives,
 echo.
 echo    %C_DIM%-- TOOLS ------------------------------------------------------%C_RESET%
 echo    %C_HEAL%[C]%C_RESET% %C_INFO%Disk space overview%C_RESET%
+echo    %C_HEAL%[D]%C_RESET% %C_INFO%Auto-Care scheduler%C_RESET% %C_DIM%- weekly unattended maintenance%C_RESET%
 echo    %C_HEAL%[0]%C_RESET% %C_INFO%Exit%C_RESET%
 echo.
 if defined REBOOT_PENDING (
@@ -261,9 +289,10 @@ if defined PROFILE_MISMATCH (
 )
 echo    %C_DIM%Log: %LOG_FILE%%C_RESET%
 echo.
-choice /c 123456789ABCR0 /n /m "  Choose an option [R=Repair All, 1-9, A-C, 0=Exit]: "
-if errorlevel 14 goto END
-if errorlevel 13 goto RUN_REPAIRALL
+choice /c 123456789ABCDR0 /n /m "  Choose an option [R=Repair All, D=Auto-Care, 1-9, A-C, 0=Exit]: "
+if errorlevel 15 goto END
+if errorlevel 14 goto RUN_REPAIRALL
+if errorlevel 13 goto AUTOMENU
 if errorlevel 12 goto DISKINFO
 if errorlevel 11 goto OPTMENU
 if errorlevel 10 goto TWKMENU
@@ -367,11 +396,22 @@ goto SUMMARY
 :: stay individual menu options because they need reboots.
 :RUN_REPAIRALL
 cls
-echo.
-call :confirm "ONE-CLICK REPAIR ALL: services + cleanup + system file repair + drive optimize. Can take 30-90 min. Start now?"
-if errorlevel 2 goto MENU
+if not defined AUTO_MODE (
+    echo.
+    call :confirm "ONE-CLICK REPAIR ALL: services + cleanup + system file repair + drive optimize. Can take 30-90 min. Start now?"
+    if errorlevel 2 goto MENU
+)
+set "RUN_LABEL_PRE=REPAIR ALL"
+call :pipeline_all
+
+:: -- unattended entry: scheduled auto-care task or 'cleanup_advanced.bat -auto' --
+:RUN_AUTO
+set "RUN_LABEL_PRE=AUTO CARE (unattended)"
+call :pipeline_all
+
+:pipeline_all
 set "TASK_TOTAL=13"
-call :start_run "REPAIR ALL"
+call :start_run %RUN_LABEL_PRE%
 echo.
 echo    %C_HEAL%*** PHASE 1/4 - SERVICE HEALTH CHECK + AUTO-FIX ***%C_RESET%
 call :svc_scanall
@@ -1121,6 +1161,86 @@ call :start_run "STARTUP TUNE"
 call :task "Restore default startup delay"          :t_startdelayrest
 goto SUMMARY
 
+:: ---------- 5h. AUTO-CARE: scheduled unattended maintenance ----------
+:AUTOMENU
+cls
+echo.
+echo  %C_H%------------------------------------------------------------------
+echo  %C_H%                  AUTO-CARE  %C_DIM%-  scheduled maintenance%C_H%
+echo  %C_H%------------------------------------------------------------------%C_RESET%
+echo.
+echo    %C_OK%[1]%C_RESET% %C_INFO%Enable weekly auto-care%C_RESET%  %C_DIM%- runs as SYSTEM, no prompts%C_RESET%
+echo    %C_OK%[2]%C_RESET% %C_INFO%Show auto-care status%C_RESET%
+echo    %C_OK%[3]%C_RESET% %C_INFO%Remove auto-care task%C_RESET%
+echo    %C_OK%[0]%C_RESET% %C_INFO%Back to main menu%C_RESET%
+echo.
+echo   %C_DIM%Auto-care = full REPAIR ALL pipeline, unattended (30-90 min):%C_RESET%
+echo   %C_DIM%services + cleanup + DISM/SFC + drive optimize, restore point first.%C_RESET%
+echo   %C_DIM%Log of auto runs: %SystemDrive%\ASC_Logs\Cleanup.log%C_RESET%
+echo.
+choice /c 1230 /n /m "  Choose an option [1-3, 0=Back]: "
+if errorlevel 4 goto MENU
+if errorlevel 3 goto AUTO_REMOVE
+if errorlevel 2 goto AUTO_STATUS
+if errorlevel 1 goto AUTO_ENABLE
+
+:AUTO_ENABLE
+cls
+echo.
+echo  %C_H%Enable weekly auto-care%C_H%
+echo.
+echo   The script runs the full REPAIR ALL pipeline unattended - no
+echo   prompts, no waiting. A restore point is created first, as always.
+echo.
+choice /c 1234567 /n /m "  Which day? [1=Sun 2=Mon 3=Tue 4=Wed 5=Thu 6=Fri 7=Sat]: "
+if errorlevel 7 set "ASC_DAY=SAT"
+if errorlevel 6 set "ASC_DAY=FRI"
+if errorlevel 5 set "ASC_DAY=THU"
+if errorlevel 4 set "ASC_DAY=WED"
+if errorlevel 3 set "ASC_DAY=TUE"
+if errorlevel 2 set "ASC_DAY=MON"
+set "ASC_DAY=SUN"
+call :confirm "Schedule auto-care every %ASC_DAY% at 02:00?"
+if errorlevel 2 goto AUTOMENU
+schtasks /create /tn "ASC_AutoCare" /tr "\"%~f0\" -auto" /sc weekly /d %ASC_DAY% /st 02:00 /ru SYSTEM /f
+if errorlevel 1 (
+    echo   %C_ERR%Could not create the scheduled task - see the error above.%C_RESET%
+) else (
+    echo   %C_OK%Auto-care scheduled: every %ASC_DAY% at 02:00.%C_RESET%
+    echo   %C_DIM%Change the time in Task Scheduler -^> ASC_AutoCare.%C_RESET%
+    >>"%LOG_FILE%" echo [%TIME:~0,8%] AUTO-CARE task created - weekly %ASC_DAY% 02:00
+)
+echo.
+pause
+goto AUTOMENU
+
+:AUTO_STATUS
+cls
+echo.
+echo  %C_H%Auto-care task status%C_H%
+echo.
+schtasks /query /tn "ASC_AutoCare" /v /fo list 2>nul
+if errorlevel 1 echo   %C_DIM%No auto-care task is configured (use option 1).%C_RESET%
+echo.
+pause
+goto AUTOMENU
+
+:AUTO_REMOVE
+cls
+echo.
+call :confirm "Remove the weekly auto-care task?"
+if errorlevel 2 goto AUTOMENU
+schtasks /delete /tn "ASC_AutoCare" /f
+if errorlevel 1 (
+    echo   %C_DIM%No auto-care task was present.%C_RESET%
+) else (
+    echo   %C_OK%Auto-care task removed.%C_RESET%
+    >>"%LOG_FILE%" echo [%TIME:~0,8%] AUTO-CARE task removed
+)
+echo.
+pause
+goto AUTOMENU
+
 
 :: ---------- 6. Summary screen ----------
 :SUMMARY
@@ -1168,6 +1288,10 @@ echo   some files locked by running apps are skipped - normal
 echo   freed space is approximate; other apps also write to disk
 echo  -------------------------------------------------------------%C_RESET%
 echo.
+if defined AUTO_MODE (
+    >>"%LOG_FILE%" echo ---- AUTO CARE (unattended) finished %DATE% %TIME% ----
+    exit /b 0
+)
 pause
 goto MENU
 
