@@ -3,7 +3,7 @@ setlocal EnableExtensions
 title Advanced System Care - Windows 10 / 11
 
 :: ================================================================
-::  ADVANCED SYSTEM CARE  v3.1
+::  ADVANCED SYSTEM CARE  v3.2
 ::  (Cleanup + Repair + Services + Registry + QuickFix + Tweaks
 ::   + ONE-CLICK REPAIR ALL)
 :: ---------------------------------------------------------------
@@ -50,6 +50,13 @@ title Advanced System Care - Windows 10 / 11
 ::   * NEW     -auto flag: unattended mode (used by the scheduled
 ::             task, or manually: cleanup_advanced.bat -auto)
 ::   * NEW     auto runs log to %SystemDrive%\ASC_Logs\Cleanup.log
+::  v3.2 (2026-09-19):
+::   * NEW     TROUBLESHOOTING section in menu 9 (keys A-I):
+::             DNS fix (public/automatic/flush + test), network
+::             adapter enable/restart, disk SMART health, crash /
+::             blue-screen analysis, startup items report, top CPU /
+::             memory processes, battery report + wake sources,
+::             Windows license check, Filter/Sticky/Toggle key reset
 :: ---------------------------------------------------------------
 ::  COLOR CODING SCHEME (ANSI 256-color safe):
 ::    CYAN    = headers and structure        GREEN  = success
@@ -242,7 +249,7 @@ if defined AUTO_MODE goto RUN_AUTO
 cls
 echo.
 echo  %C_H%==================================================================
-echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.1%C_H%
+echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.2%C_H%
 echo  %C_H%==================================================================%C_RESET%
 echo.
 echo    %C_OK%[R]%C_RESET% %C_HEAL%ONE-CLICK REPAIR ALL%C_RESET%  %C_DIM%- full automatic maintenance (30-90 min)%C_RESET%
@@ -990,19 +997,39 @@ echo    %C_OK%[6]%C_RESET% %C_INFO%Search finds nothing%C_RESET%    %C_DIM%- res
 echo    %C_OK%[7]%C_RESET% %C_INFO%Disk errors / freezes%C_RESET%   %C_DIM%- schedule CHKDSK repair at next restart%C_RESET%
 echo    %C_OK%[8]%C_RESET% %C_INFO%System Restore wizard%C_RESET%   %C_DIM%- roll back recent system changes%C_RESET%
 echo    %C_OK%[9]%C_RESET% %C_INFO%RAM memory test%C_RESET%         %C_DIM%- Windows Memory Diagnostic %C_WARN%(reboots PC)%C_RESET%
+echo.
+echo    %C_DIM%-- TROUBLESHOOTING --------------------------------------------------%C_RESET%
+echo    %C_OK%[A]%C_RESET% %C_INFO%No / slow internet%C_RESET%       %C_DIM%- DNS fix: public DNS, automatic, flush%C_RESET%
+echo    %C_OK%[B]%C_RESET% %C_INFO%Wi-Fi / adapter problem%C_RESET%  %C_DIM%- enable disabled, restart wireless%C_RESET%
+echo    %C_OK%[C]%C_RESET% %C_INFO%Check disk / SSD health%C_RESET%  %C_DIM%- SMART status of all drives%C_RESET%
+echo    %C_OK%[D]%C_RESET% %C_INFO%Analyze last crash%C_RESET%       %C_DIM%- blue screen codes, dumps%C_RESET%
+echo    %C_OK%[E]%C_RESET% %C_INFO%Slow at startup%C_RESET%          %C_DIM%- boot time + startup items%C_RESET%
+echo    %C_OK%[F]%C_RESET% %C_INFO%What is using CPU / RAM%C_RESET%  %C_DIM%- top processes%C_RESET%
+echo    %C_OK%[G]%C_RESET% %C_INFO%Battery drains fast%C_RESET%      %C_DIM%- battery report + wake sources%C_RESET%
+echo    %C_OK%[H]%C_RESET% %C_INFO%Check Windows license%C_RESET%    %C_DIM%- activation status%C_RESET%
+echo    %C_OK%[I]%C_RESET% %C_INFO%Keyboard acts weird%C_RESET%      %C_DIM%- reset Filter / Sticky keys%C_RESET%
 echo    %C_OK%[0]%C_RESET% %C_INFO%Back to main menu%C_RESET%
 echo.
-choice /c 1234567890 /n /m "  Choose a fix [1-9, 0=Back]: "
-if errorlevel 10 goto MENU
-if errorlevel 9 goto FIX_MEM
-if errorlevel 8 goto FIX_SRESTORE
-if errorlevel 7 goto FIX_CHKDSK
-if errorlevel 6 goto FIX_SEARCH
-if errorlevel 5 goto FIX_TIME
-if errorlevel 4 goto FIX_STORE
-if errorlevel 3 goto FIX_BT
-if errorlevel 2 goto FIX_AUDIO
-if errorlevel 1 goto FIX_PRINTER
+choice /c 123456789ABCDEFGHI0 /n /m "  Choose a fix [1-9, A-I, 0=Back]: "
+if errorlevel 19 goto FIX_PRINTER
+if errorlevel 18 goto FIX_AUDIO
+if errorlevel 17 goto FIX_BT
+if errorlevel 16 goto FIX_STORE
+if errorlevel 15 goto FIX_TIME
+if errorlevel 14 goto FIX_SEARCH
+if errorlevel 13 goto FIX_CHKDSK
+if errorlevel 12 goto FIX_SRESTORE
+if errorlevel 11 goto FIX_MEM
+if errorlevel 10 goto FIX_DNS
+if errorlevel 9 goto FIX_NETADAPT
+if errorlevel 8 goto FIX_DSKH
+if errorlevel 7 goto FIX_CRASH
+if errorlevel 6 goto FIX_STARTUP
+if errorlevel 5 goto FIX_PROCS
+if errorlevel 4 goto FIX_BATT
+if errorlevel 3 goto FIX_LICENSE
+if errorlevel 2 goto FIX_FILTERKEYS
+if errorlevel 1 goto FIXMENU
 
 :FIX_PRINTER
 cls
@@ -1074,6 +1101,254 @@ if errorlevel 2 goto FIXMENU
 >>"%LOG_FILE%" echo [%TIME:~0,8%] INFO - Memory Diagnostic launched - PC restarting
 mdsched.exe
 goto END
+
+
+:: ============ TROUBLESHOOTING subroutines (menu 9, A-I) ============
+
+:: -- A: DNS fix on the default (internet) adapter --
+:FIX_DNS
+cls
+echo.
+echo   %C_INFO%Current IP / DNS configuration of the adapters:%C_RESET%
+echo.
+netsh interface ip show config
+echo.
+choice /c 1230 /n /m "  [1]=Set public DNS 8.8.8.8+1.1.1.1   [2]=Reset DNS to automatic   [3]=Flush DNS cache   [0]=Cancel: "
+if errorlevel 4 goto FIXMENU
+if errorlevel 3 call :dns_flush
+if errorlevel 2 call :dns_auto
+call :dns_public
+goto FIXMENU
+
+:: -- find the default route's adapter name --
+:dns_detect
+set "DNS_IFACE="
+for /f "tokens=*" %%a in ('powershell -NoProfile -Command "(Get-NetRoute -DestinationPrefix 0.0.0.0/0 | Sort-Object RouteMetric | Select-Object -First 1).InterfaceAlias" 2^>nul') do set "DNS_IFACE=%%a"
+goto :eof
+
+:dns_public
+call :dns_detect
+if not defined DNS_IFACE (
+    echo   %C_ERR%Could not detect the default network adapter - are you online via a router?%C_RESET%
+    pause >nul
+    goto :eof
+)
+echo   %C_DIM%Setting public DNS on "%DNS_IFACE%"...%C_RESET%
+netsh interface ip set dns "%DNS_IFACE%" static 8.8.8.8
+netsh interface ip add dns "%DNS_IFACE%" 1.1.1.1 index=2
+ipconfig /flushdns >nul 2>&1
+echo.
+echo   %C_DIM%Testing name resolution...%C_RESET%
+nslookup www.microsoft.com
+echo.
+echo   %C_DIM%Revert later with option [2] ^(automatic DNS^).%C_RESET%
+echo   %C_DIM%Still no internet? Try [B] adapter or menu 5 full network reset.%C_RESET%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] DNS - set public 8.8.8.8/1.1.1.1 on %DNS_IFACE%
+echo.
+pause >nul
+goto :eof
+
+:dns_auto
+call :dns_detect
+if not defined DNS_IFACE (
+    echo   %C_ERR%Could not detect the default network adapter.%C_RESET%
+    pause >nul
+    goto :eof
+)
+netsh interface ip set dns "%DNS_IFACE%" dhcp
+ipconfig /flushdns >nul 2>&1
+echo   %C_OK%DNS back to automatic ^(router / ISP values^).%C_RESET%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] DNS - reset to automatic on %DNS_IFACE%
+echo.
+pause >nul
+goto :eof
+
+:dns_flush
+ipconfig /flushdns
+echo   %C_DIM%DNS cache cleared. If problems persist, try [1] or [2].%C_RESET%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] DNS - cache flushed
+echo.
+pause >nul
+goto :eof
+
+:: -- B: network adapters: list, enable disabled, restart wireless --
+:FIX_NETADAPT
+cls
+echo.
+echo   %C_INFO%Network adapters on this PC:%C_RESET%
+echo.
+powershell -NoProfile -Command "Get-NetAdapter | Format-Table Name, Status, LinkSpeed, InterfaceDescription -AutoSize"
+echo.
+choice /c 120 /n /m "  [1]=Enable all DISABLED adapters   [2]=Restart wireless adapter   [0]=Cancel: "
+if errorlevel 3 goto FIXMENU
+if errorlevel 2 call :net_wireless
+call :net_enable
+goto FIXMENU
+
+:net_enable
+powershell -NoProfile -Command "Get-NetAdapter | Where-Object { $_.Status -eq 'Disabled' } | ForEach-Object { Write-Output ('   Enabling ' + $_.Name); Enable-NetAdapter -Name $_.Name -Confirm:$false }"
+echo.
+echo   %C_DIM%Reconnect/replug the device if it is external.%C_RESET%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] NETADAPT - enabled disabled adapters
+echo.
+pause >nul
+goto :eof
+
+:net_wireless
+call :confirm "Restart the wireless adapter? Internet drops for a few seconds."
+if errorlevel 2 goto :eof
+powershell -NoProfile -Command "Get-NetAdapter | Where-Object { $_.PhysicalMediaType -eq '802.11' } | ForEach-Object { Disable-NetAdapter -Name $_.Name -Confirm:$false; Start-Sleep 2; Enable-NetAdapter -Name $_.Name -Confirm:$false }"
+echo   %C_OK%Wireless adapter restarted - test the connection.%C_RESET%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] NETADAPT - wireless adapter restarted
+echo.
+pause >nul
+goto :eof
+
+:: -- C: disk / SSD SMART health (read-only) --
+:FIX_DSKH
+cls
+echo.
+echo   %C_INFO%Physical disk health ^(SMART^):%C_RESET%
+echo.
+powershell -NoProfile -Command "Get-PhysicalDisk | Select-Object FriendlyName, MediaType, BusType, @{n='Size_GB';e={[int]($_.Size/1GB)}}, HealthStatus | Format-Table -AutoSize"
+echo.
+echo   %C_DIM%Healthy = fine. Predicted/Failed = BACK UP DATA and replace%C_RESET%
+echo   %C_DIM%the drive soon. A 'Predicted' SSD is wearing out.%C_RESET%
+echo.
+echo   %C_DIM%Press any key to return...%C_RESET%
+pause >nul
+>>"%LOG_FILE%" echo [%TIME:~0,8%] INFO - disk SMART health report shown
+goto FIXMENU
+
+:: -- D: crash / blue screen analysis (read-only) --
+:FIX_CRASH
+cls
+echo.
+echo   %C_INFO%Bug check events, last 30 days:^C_RESET%
+echo.
+powershell -NoProfile -Command "Get-WinEvent -FilterHashtable @{LogName='System';Id=1001;StartTime=(Get-Date).AddDays(-30)} -MaxEvents 5 -ErrorAction SilentlyContinue | ForEach-Object { $_.TimeCreated.ToString('yyyy-MM-dd HH:mm') + '  ' + $_.Message.Trim().Substring(0,[Math]::Min(140,$_.Message.Trim().Length)) }"
+echo.
+echo   %C_INFO%Unclean shutdowns in the last 30 days ^C_RESET%
+powershell -NoProfile -Command "(Get-WinEvent -FilterHashtable @{LogName='System';Id=41;StartTime=(Get-Date).AddDays(-30)} -ErrorAction SilentlyContinue | Measure-Object).Count"
+echo.
+echo   %C_INFO%Memory dumps on disk:^C_RESET%
+if exist "%SystemRoot%\Minidump\*.dmp" (
+    dir /o-d "%SystemRoot%\Minidump\*.dmp"
+) else (
+    echo   %C_DIM%No minidumps found.%C_RESET%
+)
+if exist "%SystemRoot%\MEMORY.DMP" echo   %C_DIM%MEMORY.DMP present ^(full dump^).%C_RESET%
+echo.
+echo   %C_DIM%A repeating bug check code usually points to a driver or bad RAM.%C_RESET%
+echo   %C_DIM%Try the RAM test ^(option 9^) and update GPU / chipset drivers.%C_RESET%
+echo.
+echo   %C_DIM%Press any key to return...%C_RESET%
+pause >nul
+>>"%LOG_FILE%" echo [%TIME:~0,8%] INFO - crash analysis report shown
+goto FIXMENU
+
+:: -- E: startup report (read-only) --
+:FIX_STARTUP
+cls
+echo.
+powershell -NoProfile -Command "$os = Get-CimInstance Win32_OperatingSystem; $up = (Get-Date) - $os.LastBootUpTime; Write-Output ('   Last boot: ' + $os.LastBootUpTime.ToString('yyyy-MM-dd HH:mm')); Write-Output ('   Uptime:    ' + [int]$up.TotalHours + ' h ' + $up.Minutes + ' min')"
+echo.
+echo   %C_INFO%Startup entries - Run keys:%C_RESET%
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" 2>nul
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" 2>nul
+echo.
+echo   %C_INFO%Startup folder items:%C_RESET%
+dir /b "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup" 2>nul
+echo.
+echo   %C_DIM%Disable unwanted ones: Task Manager - Startup tab, or%C_RESET%
+echo   %C_DIM%Settings - Apps - Startup. Many entries are normal.%C_RESET%
+echo.
+echo   %C_DIM%Press any key to return...%C_RESET%
+pause >nul
+>>"%LOG_FILE%" echo [%TIME:~0,8%] INFO - startup report shown
+goto FIXMENU
+
+:: -- F: top CPU / memory processes (read-only) --
+:FIX_PROCS
+cls
+echo.
+echo   %C_INFO%Top 10 processes by CPU time:^C_RESET%
+echo.
+powershell -NoProfile -Command "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 ProcessName, @{n='CPU_s';e={[int]$_.CPU}}, @{n='Mem_MB';e={[int]($_.WorkingSet64/1MB)}} | Format-Table -AutoSize"
+echo.
+echo   %C_INFO%Top 5 by memory:^C_RESET%
+powershell -NoProfile -Command "Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 ProcessName, @{n='Mem_MB';e={[int]($_.WorkingSet64/1MB)}} | Format-Table -AutoSize"
+echo.
+echo   %C_DIM%CPU_s = seconds of CPU used since the process started.%C_RESET%
+echo   %C_DIM%Task Manager ^(Ctrl+Shift+Esc^) shows live percentages.%C_RESET%
+echo.
+echo   %C_DIM%Press any key to return...%C_RESET%
+pause >nul
+>>"%LOG_FILE%" echo [%TIME:~0,8%] INFO - top processes report shown
+goto FIXMENU
+
+:: -- G: battery report + wake sources --
+:FIX_BATT
+cls
+echo.
+echo   %C_INFO%Generating battery report...%C_RESET%
+powercfg /batteryreport /output "%LOG_DIR%\battery_report.html"
+if exist "%LOG_DIR%\battery_report.html" (
+    echo   %C_OK%Report saved: %LOG_DIR%\battery_report.html%C_RESET%
+    echo.
+    start "" "%LOG_DIR%\battery_report.html"
+) else (
+    echo   %C_DIM%No battery detected ^(desktop PC^) - nothing to report.%C_RESET%
+)
+echo.
+echo   %C_INFO%Last wake event:%C_RESET%
+powercfg /lastwake
+echo.
+echo   %C_INFO%Devices allowed to wake the PC:%C_RESET%
+powercfg /devicequery wake_armed
+echo.
+echo   %C_DIM%Wake events + background apps explain most 'battery died overnight'.%C_RESET%
+echo.
+echo   %C_DIM%Press any key to return...%C_RESET%
+pause >nul
+>>"%LOG_FILE%" echo [%TIME:~0,8%] INFO - battery report generated
+goto FIXMENU
+
+:: -- H: Windows license status (read-only) --
+:FIX_LICENSE
+cls
+echo.
+echo   %C_INFO%Windows license status:%C_RESET%
+echo.
+slmgr /xpr
+echo.
+echo   %C_DIM%If not activated: Settings - Activation. With a license key,%C_RESET%
+echo   %C_DIM%run slmgr /ipk ^<key^> in an elevated prompt.%C_RESET%
+echo.
+echo   %C_DIM%Press any key to return...%C_RESET%
+pause >nul
+>>"%LOG_FILE%" echo [%TIME:~0,8%] INFO - license status shown
+goto FIXMENU
+
+:: -- I: keyboard Filter/Sticky/Toggle keys reset --
+:FIX_FILTERKEYS
+cls
+echo.
+call :confirm "Reset Filter / Sticky / Toggle keys to off? Fixes 'keyboard types on its own' or keys that feel dead."
+if errorlevel 2 goto FIXMENU
+set "TASK_TOTAL=1"
+call :start_run "KEYBOARD FILTER KEYS"
+call :task "Reset Filter/Sticky/Toggle keys" :t_filterkeys
+goto SUMMARY
+
+:t_filterkeys
+reg add "HKCU\Control Panel\Accessibility\FilterKeys" /v FilterKeysActive /t REG_DWORD /d 0 /f >nul 2>&1
+reg add "HKCU\Control Panel\Accessibility\StickyKeys" /v StickyKeysActive /t REG_DWORD /d 0 /f >nul 2>&1
+reg add "HKCU\Control Panel\Accessibility\ToggleKeys" /v ToggleKeysActive /t REG_DWORD /d 0 /f >nul 2>&1
+echo         %C_OK%Filter, Sticky and Toggle keys disabled.%C_RESET%
+echo         %C_DIM%Note: applies to the current ^possibly elevated^ user profile.%C_RESET%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] keyboard - filter/sticky/toggle keys reset
+exit /b 0
 
 
 :: ---------- 5g. Optimization submenu ----------

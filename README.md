@@ -30,7 +30,7 @@ Windows built-in (`sfc`, `dism`, `powercfg`, `reg`, `sc`, `netsh`, …).
 | `6` | **Reset Windows Update** — stops update services, moves `SoftwareDistribution`/`catroot2` to `*.old` |
 | `7` | **Service health check** — scans 23 critical services against their correct start type, repairs with per-service confirmation |
 | `8` | **Registry fixes** — EXE association, Task Manager, CMD, Regedit, Run dialog, Folder Options, USB storage, Control Panel locks |
-| `9` | **Quick fixes** — printer queue, audio, Bluetooth, Store (WSReset), time sync, search indexer, CHKDSK schedule, System Restore wizard, RAM test (reboots) |
+| `9` | **Quick fixes** — printer, audio, Bluetooth, Store (WSReset), time sync, search indexer, CHKDSK, System Restore, RAM test — plus the **Troubleshooting** section (see below) |
 | `A` | **Windows tweaks** — each with Apply/Restore: Photo Viewer, extensions, hidden files, Take Ownership, shortcut arrows, Bing off, menu speed, GameDVR off, lock screen |
 | `B` | **Optimization** — drive TRIM/defrag, power plans, startup delay, Explorer restart, hibernation on/off |
 | `C` | **Disk space overview** |
@@ -38,6 +38,23 @@ Windows built-in (`sfc`, `dism`, `powercfg`, `reg`, `sc`, `netsh`, …).
 
 Every destructive question is a real Y/N confirmation. `N` actually cancels
 (fixed in v3.0 — in v2.9 every "No" silently fell through as "Yes").
+
+## Troubleshooting section (menu `9`, keys `A`–`I`)
+
+| Key | Tool | What it does |
+|-----|------|--------------|
+| `A` | No / slow internet | DNS fix on your default adapter: set public DNS (8.8.8.8 + 1.1.1.1) with a live `nslookup` test, reset to automatic, or just flush the cache |
+| `B` | Wi-Fi / adapter problem | Lists all adapters + status; enables disabled adapters; restarts the wireless adapter (brief drop) |
+| `C` | Disk / SSD health | SMART status of every physical disk — `Predicted`/`Failed` = back up data and replace |
+| `D` | Analyze last crash | Blue-screen bug-check events (30 days), unclean shutdowns, minidumps on disk + interpretation hints |
+| `E` | Slow at startup | Last boot time, uptime, all Run-key entries, startup folder items |
+| `F` | What's using CPU / RAM | Top 10 processes by CPU time, top 5 by memory |
+| `G` | Battery drains fast | Full battery report (HTML, opened in browser), last wake event, wake-armed devices |
+| `H` | Windows license | Activation status via `slmgr /xpr` |
+| `I` | Keyboard acts weird | Resets Filter / Sticky / Toggle keys (the "types on its own" fix) |
+
+`C`–`H` are read-only diagnostics; `A`, `B` and `I` change settings (with
+confirmation where appropriate).
 
 ## Auto-Care (scheduled unattended maintenance) — menu `D`
 
@@ -122,6 +139,10 @@ cleanup_advanced.bat -auto
 
 ## Versioning
 
+- **v3.2** (2026-09-19) — Troubleshooting section in menu 9 (keys A–I):
+  DNS fix, network adapter enable/restart, disk SMART health, crash
+  analysis, startup report, top processes, battery report, license
+  check, keyboard filter-key reset.
 - **v3.1** (2026-09-19) — Auto-Care: scheduled unattended maintenance
   (menu `D`), `-auto` flag, auto runs log to `C:\ASC_Logs\`.
 - **v3.0.2** (2026-09-19) — fixed the AudioEndpointBuilder probe line
