@@ -3,9 +3,32 @@ setlocal EnableExtensions
 title Advanced System Care - Windows 10 / 11
 
 :: ================================================================
-::  ADVANCED SYSTEM CARE  v2.9
+::  ADVANCED SYSTEM CARE  v3.0
 ::  (Cleanup + Repair + Services + Registry + QuickFix + Tweaks
 ::   + ONE-CLICK REPAIR ALL)
+:: ---------------------------------------------------------------
+::  v3.0 CHANGES (audit fixes, 2026-09-19):
+::   * FIXED   Y/N confirmations always returned "Yes" (an echo
+::             between choice and exit reset the errorlevel)
+::   * FIXED   Command Prompt fix removed the wrong value
+::             (EnableCMD) - now removes DisableCMD from all 4 paths
+::   * NEW     restore point + registry backup at session start
+::   * SAFETY  every mass delete guarded against empty env vars
+::   * SAFETY  no more C:\$Recycle.bin folder deletion
+::   * SAFETY  Take Ownership warns about Windows system files
+::   * FIXED   swallowed error codes (power plans, hibernation,
+::             startup delay, WSReset) now report real failures
+::   * FIXED   Explorer restart no longer spawns an elevated shell
+::   * FIXED   WU reset renames (keeps) folders and aborts if locked
+::   * NEW     warning when elevated under a different admin account
+::   * NEW     internet check falls back to HTTPS when ICMP is blocked
+::   * FIXED   service fixes keep Delayed-Auto start types and skip
+::             Windows Defender when third-party AV is active
+::   * FIXED   log is appended (rotates at 1 MB), DISM repair checks
+::             pending reboot, SFC result parsed from its real output
+::   * DEEP    no longer wipes Prefetch by default
+::   * NEW     undo options: enable hibernation (B-7), restore
+::             startup delay (B-8)
 :: ---------------------------------------------------------------
 ::  COLOR CODING SCHEME (ANSI 256-color safe):
 ::    CYAN    = headers and structure        GREEN  = success
@@ -18,7 +41,7 @@ title Advanced System Care - Windows 10 / 11
 :: ---------------------------------------------------------------
 ::  CLEANUP      QUICK / FULL / DEEP (temp, caches, update cache...)
 ::  REPAIR       SFC + DISM suite, network stack reset, WU reset
-::  SERVICES     health scan of ~20 critical services vs their
+::  SERVICES     health scan of ~23 critical services vs their
 ::               correct start types + one-click repair
 ::  REGISTRY     fixes for classic regedit damage: EXE association,
 ::               Task Manager / CMD / Regedit blocked by policies,
@@ -43,14 +66,14 @@ net session >nul 2>&1
 if %errorlevel% neq 0 (
     echo.
     echo   Requesting Administrator privileges - please accept the UAC prompt...
-    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList '-vt' -Verb RunAs } catch { exit 1 }" >nul 2>&1
+    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList '-vt', '-orig=%USERNAME%' -Verb RunAs } catch { exit 1 }" >nul 2>&1
     if errorlevel 1 (
         echo.
         echo   Elevation was cancelled - Administrator rights are REQUIRED.
         echo   Right-click the file and choose "Run as administrator".
         pause
     )
-    exit /b
+    exit /b 1
 )
 
 :: ---------- 1b. Enable ANSI colors (virtual terminal mode) ----------
@@ -61,7 +84,7 @@ if %errorlevel% neq 0 (
 reg query "HKCU\Console" /v VirtualTerminalLevel 2>nul | find "0x1" >nul 2>&1
 if errorlevel 1 reg add "HKCU\Console" /v VirtualTerminalLevel /t REG_DWORD /d 1 /f >nul 2>&1
 if /i not "%~1"=="-vt" (
-    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList '-vt' -Verb RunAs } catch { exit 1 }" >nul 2>&1
+    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList '-vt', '-orig=%USERNAME%' -Verb RunAs } catch { exit 1 }" >nul 2>&1
     if not errorlevel 1 exit /b
     echo.
     echo   Could not relaunch for color support - continuing without it.
@@ -110,21 +133,75 @@ set "REBOOT_PENDING="
 reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" >nul 2>&1 && set "REBOOT_PENDING=1"
 reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" >nul 2>&1 && set "REBOOT_PENDING=1"
 
-:: ---------- 3d. Start the log (OVERWRITE mode) ----------
-> "%LOG_FILE%" echo ===============================================
->>"%LOG_FILE%" echo  System Care session started: %DATE% %TIME%
+:: ---------- 3d. Start the log (append mode, rotate at 1 MB) ----------
+if exist "%LOG_FILE%" for %%F in ("%LOG_FILE%") do if %%~zF GTR 1048576 del /q "%LOG_FILE%" >nul 2>&1
+>>"%LOG_FILE%" echo ===============================================
+>>"%LOG_FILE%" echo  System Care session started: %DATE% %TIME%  (session %TS%)
 >>"%LOG_FILE%" echo  Running as: %USERNAME%  -  Administrator: YES
 ver | find /v "" >>"%LOG_FILE%"
 >>"%LOG_FILE%" echo ===============================================
 if defined REBOOT_PENDING >>"%LOG_FILE%" echo  NOTE: Windows reports a PENDING REBOOT - the DISM cleanup task will be skipped.
 if defined PREV_DISM_FAIL >>"%LOG_FILE%" echo  NOTE: previous session had a DISM failure - AUTO-HEAL is armed.
 
+:: ---------- 3e. Elevation profile check ----------
+:: UAC may have run us under a DIFFERENT admin account than the one
+:: that started the script. HKCU tweaks would then land in the admin
+:: profile, not the user's. The original name was passed through the
+:: relaunch as the -orig= argument (see sections 1 and 1b).
+set "PROFILE_MISMATCH="
+set "ORIG_USER=%~2"
+if defined ORIG_USER set "ORIG_CHECK=%ORIG_USER:-orig=%"
+if defined ORIG_CHECK if not "%ORIG_CHECK%"=="%ORIG_USER%" (
+    set "ORIG_USER=%ORIG_CHECK%"
+    if /i not "%ORIG_USER%"=="%USERNAME%" (
+        set "PROFILE_MISMATCH=1"
+        >>"%LOG_FILE%" echo  NOTE: started by "%ORIG_USER%" but running as admin "%USERNAME%" - user tweaks affect the ADMIN profile.
+    )
+)
+
+:: ---------- 3f. Safety: restore point + registry backup ----------
+:: Best effort - if System Restore is unavailable the script warns
+:: and continues. The registry backup stores every key this script
+:: can change; double-click a .reg file to restore that key.
+powershell -NoProfile -Command "Checkpoint-Computer -Description 'Before Advanced System Care (%TS%)' -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop" >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo   %C_WARN%Could not create a restore point ^(System Restore may be turned off^).%C_RESET%
+    echo   %C_DIM%You can still create one manually: Win+R, rstrui.exe, Create.%C_RESET%
+    >>"%LOG_FILE%" echo  Safety: restore point FAILED - System Restore may be off
+) else (
+    >>"%LOG_FILE%" echo  Safety: restore point created - Before Advanced System Care ^(%TS%^)
+)
+set "REG_BAK_DIR=%LOG_DIR%\regbak"
+if not exist "%REG_BAK_DIR%" md "%REG_BAK_DIR%" >nul 2>&1
+set /a REG_N=0
+call :regbak "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies"           "HKLM_CV_Policies"
+call :regbak "HKLM\SOFTWARE\Policies\Microsoft\Windows"                          "HKLM_Policies_MSW"
+call :regbak "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons" "HKLM_ShellIcons"
+call :regbak "HKLM\SOFTWARE\Classes\exefile"                                     "HKLM_Classes_exefile"
+call :regbak "HKLM\SOFTWARE\Classes\*\shell\TakeOwnership"                       "HKLM_Classes_star_TakeOwnership"
+call :regbak "HKLM\SOFTWARE\Classes\Directory\shell\TakeOwnership"               "HKLM_Classes_Dir_TakeOwnership"
+call :regbak "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer"           "HKCU_Explorer"
+call :regbak "HKCU\Software\Microsoft\Windows\CurrentVersion\Search"             "HKCU_Search"
+call :regbak "HKCU\Software\Policies\Microsoft\Windows"                          "HKCU_Policies_MSW"
+call :regbak "HKCU\System\GameConfigStore"                                         "HKCU_GameConfigStore"
+call :regbak "HKCU\Control Panel\Desktop"                                          "HKCU_Desktop"
+call :regbak "HKCU\Console"                                                         "HKCU_Console"
+call :regbak "HKCU\Software\Classes"                                               "HKCU_Classes"
+>>"%LOG_FILE%" echo  Safety: registry backup written - %REG_N% keys - %REG_BAK_DIR%
+
+:: ---------- 3g. Detect third-party antivirus ----------
+:: If a non-Microsoft AV is active, Windows Defender being off is
+:: legitimate and the service scan must not flag or re-enable it.
+set "TPAV="
+for /f %%a in ('powershell -NoProfile -Command "(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -notmatch 'Defender' -and ([int]$_.ProductState -band 100) -ne 0 }).Count" 2^>nul') do if "%%a" neq "" if "%%a" neq "0" set "TPAV=1"
+
 :: ---------- 4. Main menu ----------
 :MENU
 cls
 echo.
 echo  %C_H%==================================================================
-echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v2.9%C_H%
+echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.0%C_H%
 echo  %C_H%==================================================================%C_RESET%
 echo.
 echo    %C_OK%[R]%C_RESET% %C_HEAL%ONE-CLICK REPAIR ALL%C_RESET%  %C_DIM%- full automatic maintenance (30-90 min)%C_RESET%
@@ -132,13 +209,13 @@ echo.
 echo    %C_DIM%-- CLEANUP --------------------------------------------------%C_RESET%
 echo    %C_HEAL%[1]%C_RESET% %C_INFO%QUICK cleanup%C_RESET%      %C_DIM%- temp files, recycle bin, error logs, DNS%C_RESET%
 echo    %C_HEAL%[2]%C_RESET% %C_INFO%FULL cleanup%C_RESET%       %C_DIM%- quick + update cache, thumbnails, dumps, shaders%C_RESET%
-echo    %C_HEAL%[3]%C_RESET% %C_INFO%DEEP cleanup%C_RESET%       %C_DIM%- full + DISM store, prefetch, delivery opt.%C_RESET%
+echo    %C_HEAL%[3]%C_RESET% %C_INFO%DEEP cleanup%C_RESET%       %C_DIM%- full + DISM store, delivery opt.%C_RESET%
 echo.
 echo    %C_DIM%-- REPAIR ---------------------------------------------------%C_RESET%
 echo    %C_HEAL%[4]%C_RESET% %C_ERR%Repair system files%C_RESET% %C_DIM%- SFC + DISM scanhealth/restorehealth suite%C_RESET%
 echo    %C_HEAL%[5]%C_RESET% %C_ERR%Repair network stack%C_RESET%%C_DIM% - winsock, TCP/IP, IP renewal, DNS%C_RESET%
 echo    %C_HEAL%[6]%C_RESET% %C_ERR%Reset Windows Update%C_RESET%%C_DIM%- rebuild update components from scratch%C_RESET%
-echo    %C_HEAL%[7]%C_RESET% %C_ERR%Service health check%C_RESET%%C_DIM%- scan ~20 critical services, fix broken ones%C_RESET%
+echo    %C_HEAL%[7]%C_RESET% %C_ERR%Service health check%C_RESET%%C_DIM%- scan ~23 critical services, fix broken ones%C_RESET%
 echo    %C_HEAL%[8]%C_RESET% %C_ERR%Registry fixes%C_RESET%     %C_DIM%- EXE, Task Manager, regedit, USB, policies%C_RESET%
 echo.
 echo    %C_DIM%-- QUICK FIXES / TWEAKS ------------------------------------------%C_RESET%
@@ -160,6 +237,12 @@ if defined REBOOT_PENDING (
 if defined PREV_DISM_FAIL (
     echo    %C_HEAL%*  Last session had a DISM failure - AUTO-HEAL is armed.   *%C_RESET%
     echo    %C_HEAL%*  If it fails again: internet check, repair, auto-retry.  *%C_RESET%
+    echo.
+)
+if defined PROFILE_MISMATCH (
+    echo    %C_WARN%*  Started by "%ORIG_USER%" - running as admin "%USERNAME%". *%C_RESET%
+    echo    %C_WARN%*  Tweaks in menu A write to the ADMIN profile, not yours.  *%C_RESET%
+    echo    %C_WARN%*  For personal tweaks, run the script as your own admin.   *%C_RESET%
     echo.
 )
 echo    %C_DIM%Log: %LOG_FILE%%C_RESET%
@@ -189,7 +272,7 @@ call :task "User Temp files - all profiles"    :t_user_temp
 call :task "System Temp files"                 :t_sys_temp
 call :task "Recycle Bin"                       :t_recycle
 call :task "Windows Error Reporting logs"      :t_wer
-call :task "Recent Document shortcuts"         :t_recent
+call :task "Recent documents (privacy history)" :t_recent
 call :task "DNS cache flush"                   :t_dns
 goto SUMMARY
 
@@ -200,7 +283,7 @@ call :task "User Temp files - all profiles"    :t_user_temp
 call :task "System Temp files"                 :t_sys_temp
 call :task "Recycle Bin"                       :t_recycle
 call :task "Windows Error Reporting logs"      :t_wer
-call :task "Recent Document shortcuts"         :t_recent
+call :task "Recent documents (privacy history)" :t_recent
 call :task "DNS cache flush"                   :t_dns
 call :task "Windows Update cache"              :t_wucache
 call :task "Thumbnail and icon cache"          :t_thumbs
@@ -210,21 +293,22 @@ goto SUMMARY
 
 :: NOTE: DISM runs FIRST here - it needs Windows Update in its normal
 :: state, so it must not run right after the WU service restart cycle.
+:: NOTE: Prefetch is NOT wiped by default (see :t_prefetch) - clearing
+:: it saves a few MB but slows first app launches for a while.
 :RUN_DEEP
-set "TASK_TOTAL=13"
+set "TASK_TOTAL=12"
 call :start_run "DEEP"
 call :task "Component store cleanup - DISM"    :t_dism
 call :task "User Temp files - all profiles"    :t_user_temp
 call :task "System Temp files"                 :t_sys_temp
 call :task "Recycle Bin"                       :t_recycle
 call :task "Windows Error Reporting logs"      :t_wer
-call :task "Recent Document shortcuts"         :t_recent
+call :task "Recent documents (privacy history)" :t_recent
 call :task "DNS cache flush"                   :t_dns
 call :task "Windows Update cache"              :t_wucache
 call :task "Thumbnail and icon cache"          :t_thumbs
 call :task "Crash dumps"                       :t_dumps
 call :task "DirectX shader cache"              :t_d3ds
-call :task "Prefetch files"                    :t_prefetch
 call :task "Delivery Optimization cache"       :t_dopty
 goto SUMMARY
 
@@ -283,14 +367,14 @@ if "%SVC_BAD_N%"=="0" (
 ) else (
     echo    %C_WARN%%SVC_BAD_N% services need repair - fixing now...%C_RESET%
 )
-if %SVC_BAD_N% gtr 0 for /l %%i in (1,1,%SVC_BAD_N%) do call :svc_fixone %%SVCBAD_%%i%%
+if %SVC_BAD_N% gtr 0 for /l %%i in (1,1,%SVC_BAD_N%) do call :svc_fixone %%SVCBAD_%%i%% auto
 echo.
 echo    %C_HEAL%*** PHASE 2/4 - SYSTEM CLEANUP ***%C_RESET%
 call :task "User Temp files - all profiles"    :t_user_temp
 call :task "System Temp files"                 :t_sys_temp
 call :task "Recycle Bin"                       :t_recycle
 call :task "Windows Error Reporting logs"      :t_wer
-call :task "Recent Document shortcuts"         :t_recent
+call :task "Recent documents (privacy history)" :t_recent
 call :task "DNS cache flush"                   :t_dns
 call :task "Windows Update cache"              :t_wucache
 call :task "Thumbnail and icon cache"          :t_thumbs
@@ -331,7 +415,7 @@ if %SVC_BAD_N%==0 (
 )
 echo   %C_ERR%%SVC_BAD_N% service(s) need attention - see lines marked above.%C_RESET%
 echo.
-call :confirm "Repair ALL marked services now? Restores start type + starts them."
+call :confirm "Repair the marked services? Each service is confirmed one by one."
 if errorlevel 2 goto MENU
 echo.
 for /l %%i in (1,1,%SVC_BAD_N%) do call :svc_fixone %%SVCBAD_%%i%%
@@ -382,6 +466,10 @@ if errorlevel 1 (
     echo    %C_DIM%[ --- ]  %~2  - not installed on this system%C_RESET%
     exit /b 0
 )
+if "%~1"=="WinDefend" if defined TPAV (
+    echo    %C_DIM%[ skip ] %~2  - third-party antivirus active, left alone%C_RESET%
+    exit /b 0
+)
 sc query "%~1" | find /i "RUNNING" >nul 2>&1 && set "SP_STATE=RUN"
 sc qc "%~1" 2>nul | find /i "DISABLED" >nul 2>&1 && set "SP_START=DISABLED"
 if not defined SP_START if "%~3"=="AUTO" (
@@ -428,15 +516,31 @@ if "%SP_STATE%"=="RUN" (
 )
 exit /b 0
 
-:: -- fix one recorded service; %1 = "name,expected" --
+:: -- fix one recorded service; %1 = "name,expected"  %2 = auto (no prompt) --
 :svc_fixone
 for /f "tokens=1,2 delims=," %%a in ("%~1") do (
     set "FX_NAME=%%a"
     set "FX_EXP=%%b"
 )
+if /i not "%~2"=="auto" (
+    call :confirm "Fix service %FX_NAME%? Restores its start type and starts it."
+    if errorlevel 2 (
+        echo        %C_DIM%skipped - left as found.%C_RESET%
+        >>"%LOG_FILE%" echo [%TIME:~0,8%] SVC FIX - %FX_NAME% skipped by user
+        exit /b 0
+    )
+)
 echo    %C_HEAL%FIX%C_RESET% %FX_NAME% ...
-sc config %FX_NAME% start= auto >nul 2>&1
-if "%FX_EXP%"=="MAN" sc config %FX_NAME% start= demand >nul 2>&1
+:: keep Delayed-Auto services on Delayed-Auto (that is fine on purpose)
+set "FX_DELAYED="
+sc qc %FX_NAME% 2>nul | find /i "DELAYED" >nul 2>&1 && set "FX_DELAYED=1"
+if "%FX_EXP%"=="MAN" (
+    sc config %FX_NAME% start= demand >nul 2>&1
+) else if defined FX_DELAYED (
+    sc config %FX_NAME% start= delayed >nul 2>&1
+) else (
+    sc config %FX_NAME% start= auto >nul 2>&1
+)
 net start %FX_NAME% >nul 2>&1
 sc query %FX_NAME% | find /i "RUNNING" >nul 2>&1
 if errorlevel 1 (
@@ -687,6 +791,15 @@ exit /b 0
 :tw_own
 if /i "%~1"=="A" (
     echo.
+    echo         %C_WARN%WARNING: use only on your own files and folders.%C_RESET%
+    echo         %C_WARN%Never "Take Ownership" of C:\Windows, C:\System32 or driver files -%C_RESET%
+    echo         %C_WARN%it can break Windows Update and SFC repairs.%C_RESET%
+    call :confirm "Add the Take Ownership right-click menu?"
+    if errorlevel 2 (
+        echo         %C_DIM%Skipped - nothing changed.%C_RESET%
+        goto :eof
+    )
+    echo.
     echo         %C_DIM%Adding Take Ownership to files and folders...%C_RESET%
     reg add "HKLM\SOFTWARE\Classes\*\shell\TakeOwnership" /ve /d "Take Ownership" /f >nul 2>&1
     reg add "HKLM\SOFTWARE\Classes\*\shell\TakeOwnership" /v "HasLUAShield" /t REG_SZ /d "" /f >nul 2>&1
@@ -800,7 +913,7 @@ exit /b 0
 cls
 echo.
 echo  %C_H%------------------------------------------------------------------
-echo  %C_H%        QUICK FIclick fixes for common problems%C_H%
+echo  %C_H%        QUICK FIXES for common problems%C_H%
 echo  %C_H%------------------------------------------------------------------%C_RESET%
 echo.
 echo    %C_OK%[1]%C_RESET% %C_INFO%Printer not printing%C_RESET%    %C_DIM%- clear stuck queue + restart spooler%C_RESET%
@@ -869,7 +982,7 @@ goto SUMMARY
 :FIX_CHKDSK
 cls
 echo.
-call :confirm "Schedule CHKDSK /f /r on %SystemDrive%? Runs at NEXT RESTART - can take 1-2+ h on HDD."
+call :confirm "Schedule CHKDSK /f /r on %SystemDrive%? Runs at NEXT RESTART. Minutes on SSD, 1-10 h on a large HDD."
 if errorlevel 2 goto FIXMENU
 set "TASK_TOTAL=1"
 call :start_run "DISK CHECK"
@@ -912,10 +1025,14 @@ echo    %C_OK%[3]%C_RESET% %C_INFO%Power plan - Balanced %C_DIM%(Windows default
 echo    %C_OK%[4]%C_RESET% %C_INFO%Remove startup apps delay%C_RESET%  %C_DIM%- apps launch sooner after logon%C_RESET%
 echo    %C_OK%[5]%C_RESET% %C_INFO%Restart Explorer shell%C_RESET%    %C_DIM%- frees shell memory leaks; screen flashes%C_RESET%
 echo    %C_OK%[6]%C_RESET% %C_INFO%Disable hibernation%C_RESET%       %C_DIM%- frees several GB  %C_WARN%(also disables Fast Startup)%C_RESET%
-echo    %C_OK%[7]%C_RESET% %C_INFO%Back to main menu%C_RESET%
+echo    %C_OK%[7]%C_RESET% %C_INFO%Enable hibernation %C_DIM%(undo 6)%C_RESET%
+echo    %C_OK%[8]%C_RESET% %C_INFO%Restore startup delay %C_DIM%(undo 4)%C_RESET%
+echo    %C_OK%[9]%C_RESET% %C_INFO%Back to main menu%C_RESET%
 echo.
-choice /c 1234567 /n /m "  Choose an option [1-7]: "
-if errorlevel 7 goto MENU
+choice /c 123456789 /n /m "  Choose an option [1-9]: "
+if errorlevel 9 goto MENU
+if errorlevel 8 goto OPT_STARTREST
+if errorlevel 7 goto OPT_HIBON
 if errorlevel 6 goto OPT_HIBOFF
 if errorlevel 5 goto OPT_EXPLORER
 if errorlevel 4 goto OPT_STARTUP
@@ -967,12 +1084,27 @@ call :start_run "HIBERNATION"
 call :task "Disable hibernation"                    :t_hiboff
 goto SUMMARY
 
+:OPT_HIBON
+set "TASK_TOTAL=1"
+call :start_run "HIBERNATION"
+call :task "Enable hibernation"                     :t_hibon
+goto SUMMARY
+
+:OPT_STARTREST
+set "TASK_TOTAL=1"
+call :start_run "STARTUP TUNE"
+call :task "Restore default startup delay"          :t_startdelayrest
+goto SUMMARY
+
 
 :: ---------- 6. Summary screen ----------
 :SUMMARY
-for /f %%a in ('powershell -NoProfile -Command "[math]::Round((Get-PSDrive -Name %SYS_DRIVE%).Free/1MB)"') do set "FREE_AFTER=%%a"
-for /f %%a in ('powershell -NoProfile -Command "[math]::Max(0, %FREE_AFTER% - %FREE_BEFORE%)"') do set "FREED_MB=%%a"
-for /f %%a in ('powershell -NoProfile -Command "[math]::Round((Get-PSDrive -Name %SYS_DRIVE%).Free/1GB, 2)"') do set "FREE_NOW_GB=%%a"
+for /f "tokens=1,2" %%a in ('powershell -NoProfile -Command "$f=Get-PSDrive -Name %SYS_DRIVE%; '{0} {1}' -f ([math]::Round($f.Free/1MB)),([math]::Round($f.Free/1GB,2))"') do (
+    set "FREE_AFTER=%%a"
+    set "FREE_NOW_GB=%%b"
+)
+set /a FREED_MB=%FREE_AFTER%-%FREE_BEFORE%
+if %FREED_MB% lss 0 set "FREED_MB=0"
 >>"%LOG_FILE%" echo ---- %RUN_LABEL% run finished %DATE% %TIME% - approx %FREED_MB% MB freed - %FAIL_NUM% warnings ----
 cls
 echo.
@@ -1040,15 +1172,19 @@ exit /b 0
 ::  HELPER SUBROUTINES
 :: ================================================================
 
-:: -- Confirmation prompt: %1 = question; errorlevel 2 = answered No --
+:: -- Confirmation prompt: %1 = question; returns 2 when answered No --
+:: NOTE: capture %errorlevel% IMMEDIATELY after choice - any echo or
+:: other command in between resets it (that bug used to make every
+:: "No" answer fall through as "Yes").
 :confirm
 echo   %C_WARN%?%C_RESET% %~1
 choice /c yn /n /m "   Continue [Y/N]: "
-if errorlevel 2 (
+set "CONFIRM_RC=%errorlevel%"
+if "%CONFIRM_RC%"=="2" (
     echo   %C_DIM%Cancelled.%C_RESET%
     >>"%LOG_FILE%" echo [%TIME:~0,8%] INFO - user cancelled: %~1
 )
-exit /b %errorlevel%
+exit /b %CONFIRM_RC%
 
 :: -- Start a run: baseline free space, header, log entry --
 :start_run
@@ -1056,7 +1192,8 @@ set "RUN_LABEL=%~1"
 set /a TASK_NUM=0
 set /a FAIL_NUM=0
 set "DISM_FAILED_RUN="
-set "REBOOT_ADVISED="
+:: NOTE: REBOOT_ADVISED is NOT cleared here - a reboot advised by an
+:: earlier run in this session stays advised until the next session.
 for /f %%a in ('powershell -NoProfile -Command "[math]::Round((Get-PSDrive -Name %SYS_DRIVE%).Free/1MB)"') do set "FREE_BEFORE=%%a"
 cls
 echo.
@@ -1097,8 +1234,25 @@ echo        %C_ERR%[ FAIL ]%C_RESET%  %C_DIM%see log for details%C_RESET%
 >>"%LOG_FILE%" echo [%TIME:~0,8%] WARN - %~1 - exit code %TASK_RC%
 goto :eof
 
+:: -- Safety guard: %1 = env var name. Returns 1 when the variable is
+:: -- undefined/empty. Destructive tasks call this BEFORE expanding the
+:: -- variable into a delete path - otherwise an empty variable would
+:: -- turn del "%%TEMP%%\*" into a silent mass delete of "\*".
+:require_env
+if not defined %~1 exit /b 1
+exit /b 0
+
+:: -- export one registry key to the backup dir (silent, best effort) --
+:: %1 = key path, %2 = output file name (without .reg)
+:regbak
+reg export "%~1" "%REG_BAK_DIR%\%~2.reg" /y >nul 2>&1
+if not errorlevel 1 set /a REG_N+=1
+goto :eof
+
 :: -- Clean Temp for EVERY user profile (elevated context aware) --
 :t_user_temp
+call :require_env TEMP || ( set "TASK_SKIPPED=1" & exit /b 0 )
+call :require_env SystemDrive || ( set "TASK_SKIPPED=1" & exit /b 0 )
 del /q /f /s "%TEMP%\*" >nul 2>&1
 for /d %%x in ("%TEMP%\*") do rd /s /q "%%x" >nul 2>&1
 for /d %%U in ("%SystemDrive%\Users\*") do (
@@ -1110,16 +1264,20 @@ for /d %%U in ("%SystemDrive%\Users\*") do (
 exit /b 0
 
 :t_sys_temp
+call :require_env SystemRoot || ( set "TASK_SKIPPED=1" & exit /b 0 )
 del /q /f /s "%SystemRoot%\Temp\*" >nul 2>&1
 for /d %%x in ("%SystemRoot%\Temp\*") do rd /s /q "%%x" >nul 2>&1
 exit /b 0
 
 :t_recycle
+:: Clear-RecycleBin empties the bin on every drive properly. Do NOT
+:: rd the $Recycle.bin folder itself - that deletes every user's bin
+:: structure and can race with the API call above.
 powershell -NoProfile -Command "Clear-RecycleBin -Force -ErrorAction SilentlyContinue" >nul 2>&1
-rd /s /q "%SystemDrive%\$Recycle.bin" >nul 2>&1
 exit /b 0
 
 :t_wer
+call :require_env ProgramData || ( set "TASK_SKIPPED=1" & exit /b 0 )
 del /q /f /s "%ProgramData%\Microsoft\Windows\WER\ReportArchive\*" >nul 2>&1
 for /d %%x in ("%ProgramData%\Microsoft\Windows\WER\ReportArchive\*") do rd /s /q "%%x" >nul 2>&1
 del /q /f /s "%ProgramData%\Microsoft\Windows\WER\ReportQueue\*" >nul 2>&1
@@ -1127,7 +1285,10 @@ for /d %%x in ("%ProgramData%\Microsoft\Windows\WER\ReportQueue\*") do rd /s /q 
 exit /b 0
 
 :t_recent
-:: Privacy note: this clears jump-list history for the current user.
+:: Privacy note: this clears the recent-documents list for the
+:: CURRENT (possibly elevated) user profile. It is a privacy reset,
+:: not a meaningful space saver.
+call :require_env APPDATA || ( set "TASK_SKIPPED=1" & exit /b 0 )
 del /q /f /s "%APPDATA%\Microsoft\Windows\Recent\*" >nul 2>&1
 exit /b 0
 
@@ -1136,6 +1297,7 @@ ipconfig /flushdns >nul 2>&1
 exit /b 0
 
 :t_wucache
+call :require_env SystemRoot || ( set "TASK_SKIPPED=1" & exit /b 0 )
 :: Only restart services if they were running BEFORE we stopped them
 set "WU_RUNNING="
 set "BITS_RUNNING="
@@ -1151,11 +1313,14 @@ exit /b 0
 
 :t_thumbs
 :: Locked while Explorer runs - we clear whatever is not in use
+call :require_env LOCALAPPDATA || ( set "TASK_SKIPPED=1" & exit /b 0 )
 del /q /f /a "%LOCALAPPDATA%\Microsoft\Windows\Explorer\thumbcache_*.db" >nul 2>&1
 del /q /f /a "%LOCALAPPDATA%\Microsoft\Windows\Explorer\iconcache_*.db" >nul 2>&1
 exit /b 0
 
 :t_dumps
+call :require_env LOCALAPPDATA || ( set "TASK_SKIPPED=1" & exit /b 0 )
+call :require_env SystemRoot || ( set "TASK_SKIPPED=1" & exit /b 0 )
 del /q /f /s "%LOCALAPPDATA%\CrashDumps\*" >nul 2>&1
 for /d %%x in ("%LOCALAPPDATA%\CrashDumps\*") do rd /s /q "%%x" >nul 2>&1
 del /q /f /s "%SystemRoot%\Minidump\*" >nul 2>&1
@@ -1164,13 +1329,17 @@ exit /b 0
 
 :t_d3ds
 :: Safe to delete - Windows rebuilds shader caches automatically
+call :require_env LOCALAPPDATA || ( set "TASK_SKIPPED=1" & exit /b 0 )
 del /q /f /s "%LOCALAPPDATA%\D3DSCache\*" >nul 2>&1
 for /d %%x in ("%LOCALAPPDATA%\D3DSCache\*") do rd /s /q "%%x" >nul 2>&1
 exit /b 0
 
 :t_prefetch
 :: NOTE: Prefetch helps apps start faster. Only .pf traces are removed;
-:: Windows rebuilds them, but first launches may be slightly slower.
+:: Windows rebuilds them, but first launches may be slower for a while.
+:: This task is intentionally NOT part of any default run (DEEP) -
+:: it saves a few MB at the cost of launch speed.
+call :require_env SystemRoot || ( set "TASK_SKIPPED=1" & exit /b 0 )
 del /q /f /s "%SystemRoot%\Prefetch\*.pf" >nul 2>&1
 exit /b 0
 
@@ -1189,16 +1358,32 @@ ping -n 2 -w 3000 www.microsoft.com 2>nul | find "TTL=" >nul 2>&1 && set "INET_O
 if not defined INET_OK (
     ping -n 2 -w 3000 8.8.8.8 2>nul | find "TTL=" >nul 2>&1 && set "INET_OK=1"
 )
+if not defined INET_OK (
+    :: firewalls that block ICMP but allow HTTPS would cause a false
+    :: "no internet" - verify with a real HTTPS request in that case
+    powershell -NoProfile -Command "try { (Invoke-WebRequest -UseBasicParsing -TimeoutSec 8 https://www.microsoft.com).StatusCode } catch { exit 1 }" >nul 2>&1 && set "INET_OK=1"
+)
 if defined INET_OK exit /b 0
 exit /b 1
 
 :: -- System File Checker --
+:: sfc exit codes are poorly documented, so the RESULT is parsed from
+:: the real output (kept in %LOG_DIR%\sfc_out.txt) as well.
 :t_sfc
 echo.
 echo         %C_DIM%Scanning protected system files - can take 5-15 min:%C_RESET%
-sfc /scannow
+powershell -NoProfile -Command "sfc /scannow 2>&1 | Tee-Object -FilePath '%LOG_DIR%\sfc_out.txt'; exit $LASTEXITCODE"
 set "SFC_RC=%errorlevel%"
+set "SFC_UNFIXED="
+find /i "unable to fix" "%LOG_DIR%\sfc_out.txt" >nul 2>&1 && set "SFC_UNFIXED=1"
+find /i "could not fix" "%LOG_DIR%\sfc_out.txt" >nul 2>&1 && set "SFC_UNFIXED=1"
 >>"%LOG_FILE%" echo [%TIME:~0,8%] sfc /scannow finished - exit code %SFC_RC%
+if defined SFC_UNFIXED (
+    echo         %C_ERR%SFC found corrupt files it COULD NOT FIX - re-run after a reboot.%C_RESET%
+    echo         %C_ERR%If it persists, run DISM repair ^(menu 4, step 2^).%C_RESET%
+    >>"%LOG_FILE%" echo [%TIME:~0,8%] sfc reported UNFIXABLE corruption
+    exit /b 1
+)
 if not "%SFC_RC%"=="0" (
     echo         %C_ERR%SFC reported a problem - details:%C_RESET%
     echo         %C_DIM%%SystemRoot%\Logs\CBS\CBS.log  %C_DIM%^(look for entries tagged [SR]^)%C_RESET%
@@ -1226,6 +1411,7 @@ exit /b 0
 
 :: -- Full Windows Update component reset --
 :t_wureset
+call :require_env SystemRoot || ( set "TASK_SKIPPED=1" & exit /b 0 )
 set "WU_WUA="
 set "WU_BITS="
 set "WU_CRYPT="
@@ -1241,22 +1427,45 @@ net stop cryptsvc /y >nul 2>&1
 net stop msiserver /y >nul 2>&1
 timeout /t 2 /nobreak >nul 2>&1
 echo         %C_DIM%Rebuilding SoftwareDistribution...%C_RESET%
+:: rename (keep) instead of delete - the .old folders stay for
+:: comparison and are only removed by hand. Abort cleanly if locked.
 rd /s /q "%SystemRoot%\SoftwareDistribution.old" >nul 2>&1
-rd /s /q "%SystemRoot%\SoftwareDistribution" >nul 2>&1
-if exist "%SystemRoot%\SoftwareDistribution" ren "%SystemRoot%\SoftwareDistribution" "SoftwareDistribution.old" >nul 2>&1
+if exist "%SystemRoot%\SoftwareDistribution" (
+    ren "%SystemRoot%\SoftwareDistribution" "SoftwareDistribution.old" >nul 2>&1
+    if exist "%SystemRoot%\SoftwareDistribution" (
+        echo         %C_ERR%SoftwareDistribution is locked - WU reset aborted.%C_RESET%
+        echo         %C_DIM%Close update-related apps, then try again.%C_RESET%
+        set "WU_ABORTED=1"
+        goto :wu_restore
+    )
+)
 echo         %C_DIM%Rebuilding catroot2 security database...%C_RESET%
 rd /s /q "%SystemRoot%\System32\catroot2.old" >nul 2>&1
-rd /s /q "%SystemRoot%\System32\catroot2" >nul 2>&1
-if exist "%SystemRoot%\System32\catroot2" ren "%SystemRoot%\System32\catroot2" "catroot2.old" >nul 2>&1
+if exist "%SystemRoot%\System32\catroot2" (
+    ren "%SystemRoot%\System32\catroot2" "catroot2.old" >nul 2>&1
+    if exist "%SystemRoot%\System32\catroot2" (
+        echo         %C_ERR%catroot2 is locked - WU reset aborted.%C_RESET%
+        echo         %C_DIM%Close update-related apps, then try again.%C_RESET%
+        set "WU_ABORTED=1"
+        goto :wu_restore
+    )
+)
+:wu_restore
+:: always restart the services we stopped, then report the outcome
 echo         %C_DIM%Restarting services that were running...%C_RESET%
 if defined WU_MSI net start msiserver >nul 2>&1
 if defined WU_CRYPT net start cryptsvc >nul 2>&1
 if defined WU_BITS net start bits >nul 2>&1
 if defined WU_WUA net start wuauserv >nul 2>&1
+if defined WU_ABORTED (
+    set "WU_ABORTED="
+    >>"%LOG_FILE%" echo [%TIME:~0,8%] WU reset ABORTED - a folder was locked
+    exit /b 1
+)
 set "REBOOT_ADVISED=1"
 echo.
 echo         %C_OK%Windows Update components rebuilt.%C_RESET%
-echo         %C_DIM%The next update check re-scans and re-downloads what is needed.%C_RESET%
+echo         %C_DIM%Old components kept as *.old - delete them by hand once updates work again.%C_RESET%
 >>"%LOG_FILE%" echo [%TIME:~0,8%] WU components reset done - reboot advised
 exit /b 0
 
@@ -1264,7 +1473,7 @@ exit /b 0
 :t_defrag
 echo.
 echo         %C_DIM%%SystemDrive% - defrag /O picks TRIM or defrag automatically:%C_RESET%
-defrag.exe %SystemDrive% /O /U
+defrag.exe "%SystemDrive%" /O /U
 set "DEFRAG_RC=%errorlevel%"
 >>"%LOG_FILE%" echo [%TIME:~0,8%] drive optimization finished - exit code %DEFRAG_RC%
 exit /b %DEFRAG_RC%
@@ -1272,42 +1481,89 @@ exit /b %DEFRAG_RC%
 :: -- Power plans (standard Windows GUIDs, present on all editions) --
 :t_powerhigh
 powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
+set "PWR_RC=%errorlevel%"
+if not "%PWR_RC%"=="0" (
+    echo         %C_ERR%Power plan could not be set - exit code %PWR_RC%.%C_RESET%
+    echo         %C_DIM%High Performance is often absent on Modern Standby PCs.%C_RESET%
+    exit /b %PWR_RC%
+)
 echo         %C_DIM%Active scheme:%C_RESET%
 powercfg /getactivescheme
-exit /b %errorlevel%
+exit /b 0
 
 :t_powerbal
 powercfg /setactive 381b4222-f694-41f0-9685-ff5bb260df2e
+set "PWR_RC=%errorlevel%"
+if not "%PWR_RC%"=="0" (
+    echo         %C_ERR%Power plan could not be set - exit code %PWR_RC%.%C_RESET%
+    exit /b %PWR_RC%
+)
 echo         %C_DIM%Active scheme:%C_RESET%
 powercfg /getactivescheme
-exit /b %errorlevel%
-
-:: -- Startup apps delay removal (revert: delete the value) --
-:t_startdelay
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize" /v StartupDelayInMSec /t REG_DWORD /d 0 /f >nul 2>&1
-echo         %C_OK%Startup delay removed - applies after next sign-in.%C_RESET%
-echo         %C_DIM%Revert: delete StartupDelayInMSec under ...\Explorer\Serialize%C_RESET%
-exit /b %errorlevel%
-
-:: -- Restart Explorer shell --
-:t_explorer
-taskkill /f /im explorer.exe >nul 2>&1
-timeout /t 1 /nobreak >nul 2>&1
-start explorer.exe
-echo         %C_OK%Explorer restarted.%C_RESET%
 exit /b 0
 
-:: -- Hibernation off (also disables Fast Startup) --
+:: -- Startup apps delay removal (undo: Optimization menu option 8) --
+:t_startdelay
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize" /v StartupDelayInMSec /t REG_DWORD /d 0 /f >nul 2>&1
+set "SD_RC=%errorlevel%"
+if not "%SD_RC%"=="0" (
+    echo         %C_ERR%Could not set the startup delay value - exit code %SD_RC%.%C_RESET%
+    exit /b %SD_RC%
+)
+echo         %C_OK%Startup delay removed - applies after next sign-in.%C_RESET%
+echo         %C_DIM%Undo: Optimization menu - Restore startup delay.%C_RESET%
+exit /b 0
+
+:: -- Restart Explorer shell --
+:: Windows (winlogon) auto-restarts Explorer as the logged-in user,
+:: which is what we want. Only start it ourselves if that did not
+:: happen (that fallback instance would be elevated - we say so).
+:t_explorer
+taskkill /f /im explorer.exe >nul 2>&1
+timeout /t 2 /nobreak >nul 2>&1
+tasklist /fi "imagename eq explorer.exe" 2>nul | find /i "explorer.exe" >nul 2>&1
+if not errorlevel 1 (
+    echo         %C_OK%Explorer restarted %C_DIM%^(auto-restarted by Windows, normal user^).%C_RESET%
+    exit /b 0
+)
+start explorer.exe
+echo         %C_OK%Explorer restarted %C_WARN%(elevated fallback - sign out/in if the taskbar looks odd).%C_RESET%
+exit /b 0
+
+:: -- Hibernation off (also disables Fast Startup; undo: menu B option 7) --
 :t_hiboff
 powercfg /h off
+set "HIB_RC=%errorlevel%"
+if not "%HIB_RC%"=="0" (
+    echo         %C_ERR%Hibernation could not be disabled - exit code %HIB_RC%.%C_RESET%
+    exit /b %HIB_RC%
+)
 echo         %C_OK%Hibernation disabled - hiberfil.sys freed.%C_RESET%
-echo         %C_WARN%Note: Fast Startup is also disabled. Revert with: powercfg /h on%C_RESET%
-exit /b %errorlevel%
+echo         %C_WARN%Note: Fast Startup is also disabled. Undo: Optimization - Enable hibernation.%C_RESET%
+exit /b 0
+
+:: -- Hibernation on (undo of the task above; re-enables Fast Startup) --
+:t_hibon
+powercfg /h on
+set "HIB_RC=%errorlevel%"
+if not "%HIB_RC%"=="0" (
+    echo         %C_ERR%Hibernation could not be enabled - exit code %HIB_RC%.%C_RESET%
+    exit /b %HIB_RC%
+)
+echo         %C_OK%Hibernation enabled - Fast Startup is back.%C_RESET%
+exit /b 0
+
+:: -- Startup delay: restore Windows default (undo of t_startdelay) --
+:t_startdelayrest
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize" /v StartupDelayInMSec /f >nul 2>&1
+echo         %C_OK%Startup delay value removed - Windows default applies after next sign-in.%C_RESET%
+exit /b 0
 
 :: ============ QUICK FIX subroutines ============
 
 :: -- Printer fix: stop spooler, clear stuck jobs, restart. --
 :t_spooler
+call :require_env SystemRoot || ( set "TASK_SKIPPED=1" & exit /b 0 )
 echo.
 echo         %C_DIM%Stopping Print Spooler...%C_RESET%
 net stop spooler >nul 2>&1
@@ -1362,12 +1618,17 @@ echo         %C_OK%Bluetooth stack restarted - re-test your devices.%C_RESET%
 exit /b 0
 
 :: -- Store fix: reset the Microsoft Store cache --
+:: NOTE: runs as the CURRENT (possibly elevated) account - if your
+:: everyday account is different, run this fix from menu 9 while
+:: signed in as that account.
 :t_storereset
 echo.
 echo         %C_DIM%Running WSReset - a Store window may open, keep it in front...%C_RESET%
 start /wait wsreset.exe
+set "WS_RC=%errorlevel%"
 echo         %C_OK%Store cache reset done - if it opened, test downloading an app.%C_RESET%
-exit /b %errorlevel%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] wsreset finished - exit code %WS_RC%
+exit /b 0
 
 :: -- Time sync fix: needs internet (talks to Microsoft NTP) --
 :t_time
@@ -1407,6 +1668,7 @@ exit /b 0
 
 :: -- Disk check: schedule CHKDSK at next restart --
 :t_chkdsk
+call :require_env SystemDrive || ( set "TASK_SKIPPED=1" & exit /b 0 )
 echo.
 echo         %C_DIM%Scheduling chkdsk /f /r on %SystemDrive% for the next restart...%C_RESET%
 echo y| chkdsk %SystemDrive% /f /r
@@ -1431,6 +1693,9 @@ echo         %C_DIM%Restoring exefile class and .exe association...%C_RESET%
 ftype exefile="%%1" %%* >nul 2>&1
 assoc .exe=exefile >nul 2>&1
 reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.exe\UserChoice" /f >nul 2>&1
+:: HKLM side + a classic hijack location (user-level class override)
+reg add "HKLM\SOFTWARE\Classes\exefile" /ve /d "Application" /f >nul 2>&1
+reg delete "HKCU\Software\Classes\.exe" /f >nul 2>&1
 echo         %C_OK%EXE association restored - try opening a program now.%C_RESET%
 echo         %C_DIM%Still broken? Sign out and back in, then scan for malware.%C_RESET%
 >>"%LOG_FILE%" echo [%TIME:~0,8%] EXE association repaired
@@ -1460,16 +1725,21 @@ echo         %C_OK%Task Manager unblocked - reopens right away.%C_RESET%
 exit /b 0
 
 :r_cmd
-call :r_del_policy "HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System" "EnableCMD"
+:: the real policy value is DisableCMD (all four classic locations)
+call :r_del_policy "HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System" "DisableCMD"
 set "R_ANY=%R_FOUND%"
-call :r_del_policy "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "EnableCMD"
+call :r_del_policy "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "DisableCMD"
+if not defined R_ANY if not defined R_FOUND set "R_ANY=1"
+call :r_del_policy "HKCU\Software\Policies\Microsoft\Windows\System" "DisableCMD"
+if not defined R_ANY if not defined R_FOUND set "R_ANY=1"
+call :r_del_policy "HKLM\SOFTWARE\Policies\Microsoft\Windows\System" "DisableCMD"
 if not defined R_ANY if not defined R_FOUND (
     echo         %C_OK%Command Prompt was not blocked - nothing to do.%C_RESET%
     set "TASK_SKIPPED=1"
     exit /b 0
 )
 echo         %C_OK%Command Prompt unblocked - opens normally now.%C_RESET%
->>"%LOG_FILE%" echo [%TIME:~0,8%] registry - EnableCMD block removed
+>>"%LOG_FILE%" echo [%TIME:~0,8%] registry - DisableCMD block removed
 exit /b 0
 
 :r_regedit
@@ -1543,6 +1813,14 @@ exit /b 0
 
 :: -- Repair sequence, also used by AUTO-HEAL --
 :t_repair
+if defined REBOOT_PENDING (
+    echo.
+    echo         %C_WARN%SKIPPED - Windows has a PENDING REBOOT.%C_RESET%
+    echo         %C_DIM%RestoreHealth needs a clean boot. Restart the PC, then run again.%C_RESET%
+    >>"%LOG_FILE%" echo [%TIME:~0,8%] SKIP - DISM repair - blocked by pending reboot
+    set "TASK_SKIPPED=1"
+    exit /b 0
+)
 echo.
 echo         %C_HEAL%Checking internet connection first - restorehealth needs it...%C_RESET%
 call :check_internet
@@ -1626,7 +1904,4 @@ if "%DISM_RC%"=="0" (
 for /f "usebackq" %%h in (`powershell -NoProfile -Command "'0x{0:X8}' -f %DISM_RC%"`) do set "DISM_HEX=%%h"
 echo         %C_ERR%AUTO-HEAL retry failed with error %DISM_HEX% - reboot and run DEEP again.%C_RESET%
 >>"%LOG_FILE%" echo [%TIME:~0,8%] AUTO-HEAL retry FAILED - decimal %DISM_RC% = hex %DISM_HEX%
-exit /b %DISM_RC%
-exit /b %DISM_RC%
-] AUTO-HEAL retry FAILED - decimal %DISM_RC% = hex %DISM_HEX%
 exit /b %DISM_RC%
