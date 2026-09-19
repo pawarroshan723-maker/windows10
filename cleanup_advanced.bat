@@ -3,7 +3,7 @@ setlocal EnableExtensions
 title Advanced System Care - Windows 10 / 11
 
 :: ================================================================
-::  ADVANCED SYSTEM CARE  v3.0
+::  ADVANCED SYSTEM CARE  v3.0.1
 ::  (Cleanup + Repair + Services + Registry + QuickFix + Tweaks
 ::   + ONE-CLICK REPAIR ALL)
 :: ---------------------------------------------------------------
@@ -29,6 +29,14 @@ title Advanced System Care - Windows 10 / 11
 ::   * DEEP    no longer wipes Prefetch by default
 ::   * NEW     undo options: enable hibernation (B-7), restore
 ::             startup delay (B-8)
+::  v3.0.1 (2026-09-19, field-report fix):
+::   * FIXED   REPAIR ALL service loop - the old numbered-variable
+::             pattern (%%SVCBAD_%%i%%) plus the "auto" no-prompt
+::             argument could shift the flag into the service NAME
+::             slot on the first iteration (a phantom "SVC FIX -
+::             auto" was logged and the real service went unfixed).
+::             Bad services are now read from a list file, the flag
+::             is an env var, and unknown service names are skipped.
 :: ---------------------------------------------------------------
 ::  COLOR CODING SCHEME (ANSI 256-color safe):
 ::    CYAN    = headers and structure        GREEN  = success
@@ -122,6 +130,7 @@ for /f %%a in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd_HH-m
 set "LOG_DIR=%USERPROFILE%\CleanupLogs"
 set "LOG_FILE=%LOG_DIR%\Cleanup.log"
 set "HEAL_FLAG=%LOG_DIR%\dism_heal_armed.flg"
+set "SVC_BAD_FILE=%LOG_DIR%\svc_bad.txt"
 if not exist "%LOG_DIR%" md "%LOG_DIR%" >nul 2>&1
 
 :: ---------- 3b. AUTO-HEAL state from the previous session ----------
@@ -201,7 +210,7 @@ for /f %%a in ('powershell -NoProfile -Command "(Get-CimInstance -Namespace root
 cls
 echo.
 echo  %C_H%==================================================================
-echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.0%C_H%
+echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.0.1%C_H%
 echo  %C_H%==================================================================%C_RESET%
 echo.
 echo    %C_OK%[R]%C_RESET% %C_HEAL%ONE-CLICK REPAIR ALL%C_RESET%  %C_DIM%- full automatic maintenance (30-90 min)%C_RESET%
@@ -367,7 +376,10 @@ if "%SVC_BAD_N%"=="0" (
 ) else (
     echo    %C_WARN%%SVC_BAD_N% services need repair - fixing now...%C_RESET%
 )
-if %SVC_BAD_N% gtr 0 for /l %%i in (1,1,%SVC_BAD_N%) do call :svc_fixone %%SVCBAD_%%i%% auto
+set "SVC_AUTO=1"
+if %SVC_BAD_N% gtr 0 for /f "delims=" %%s in ('type "%SVC_BAD_FILE%" 2^>nul') do call :svc_fixone "%%s"
+set "SVC_AUTO="
+
 echo.
 echo    %C_HEAL%*** PHASE 2/4 - SYSTEM CLEANUP ***%C_RESET%
 call :task "User Temp files - all profiles"    :t_user_temp
@@ -418,7 +430,7 @@ echo.
 call :confirm "Repair the marked services? Each service is confirmed one by one."
 if errorlevel 2 goto MENU
 echo.
-for /l %%i in (1,1,%SVC_BAD_N%) do call :svc_fixone %%SVCBAD_%%i%%
+for /f "delims=" %%s in ('type "%SVC_BAD_FILE%" 2^>nul') do call :svc_fixone "%%s"
 echo.
 echo   %C_OK%Service repair pass finished.%C_RESET%
 echo   %C_DIM%A restart is recommended so everything settles.%C_RESET%
@@ -430,6 +442,7 @@ goto MENU
 :svc_scanall
 set /a SVC_BAD_N=0
 set /a SVC_CHK=0
+type nul >"%SVC_BAD_FILE%"
 >>"%LOG_FILE%" echo ---- service health scan started %TIME% ----
 call :svc_probe "EventLog"            "Windows Event Log"                 AUTO
 call :svc_probe "Schedule"            "Task Scheduler"                    AUTO
@@ -485,21 +498,21 @@ if not defined SP_START set "SP_START=OTHER"
 if "%SP_START%"=="DISABLED" (
     echo    %C_ERR%[ BAD ]  %~2  - DISABLED  %C_DIM%^(%~1^)%C_RESET%
     set /a SVC_BAD_N+=1
-    set "SVCBAD_%SVC_BAD_N%=%~1,%~3"
+    >>"%SVC_BAD_FILE%" echo %~1,%~3
     >>"%LOG_FILE%" echo [%TIME:~0,8%] SVC BROKEN - %~1 is DISABLED - expected %~3
     exit /b 0
 )
 if "%~3"=="AUTO" if not "%SP_START%"=="AUTO" (
     echo    %C_ERR%[ BAD ]  %~2  - wrong start type: %SP_START%  %C_DIM%^(%~1^)%C_RESET%
     set /a SVC_BAD_N+=1
-    set "SVCBAD_%SVC_BAD_N%=%~1,%~3"
+    >>"%SVC_BAD_FILE%" echo %~1,%~3
     >>"%LOG_FILE%" echo [%TIME:~0,8%] SVC BROKEN - %~1 start type %SP_START% - expected AUTO
     exit /b 0
 )
 if "%~3"=="AUTO" if not "%SP_STATE%"=="RUN" (
     echo    %C_WARN%[ DOWN ] %~2  - not running %C_DIM%- will be started%C_RESET%
     set /a SVC_BAD_N+=1
-    set "SVCBAD_%SVC_BAD_N%=%~1,%~3"
+    >>"%SVC_BAD_FILE%" echo %~1,%~3
     >>"%LOG_FILE%" echo [%TIME:~0,8%] SVC DOWN - %~1 is not running
     exit /b 0
 )
@@ -512,17 +525,24 @@ if "%SP_STATE%"=="RUN" (
 ) else (
     echo    %C_WARN%[ DOWN ] %~2 %C_DIM%- will be started%C_RESET%
     set /a SVC_BAD_N+=1
-    set "SVCBAD_%SVC_BAD_N%=%~1,%~3"
+    >>"%SVC_BAD_FILE%" echo %~1,%~3
 )
 exit /b 0
 
-:: -- fix one recorded service; %1 = "name,expected"  %2 = auto (no prompt) --
+:: -- fix one recorded service; %1 = "name,expected" (SVC_AUTO = no prompt) --
 :svc_fixone
 for /f "tokens=1,2 delims=," %%a in ("%~1") do (
     set "FX_NAME=%%a"
     set "FX_EXP=%%b"
 )
-if /i not "%~2"=="auto" (
+:: safety: never "fix" a name that is not a real service
+sc query "%FX_NAME%" >nul 2>&1
+if errorlevel 1 (
+    echo        %C_WARN%service %FX_NAME% not found - skipped.%C_RESET%
+    >>"%LOG_FILE%" echo [%TIME:~0,8%] SVC FIX - %FX_NAME% not found, skipped
+    exit /b 0
+)
+if not defined SVC_AUTO (
     call :confirm "Fix service %FX_NAME%? Restores its start type and starts it."
     if errorlevel 2 (
         echo        %C_DIM%skipped - left as found.%C_RESET%
