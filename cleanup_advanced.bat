@@ -3,7 +3,7 @@ setlocal EnableExtensions
 title Advanced System Care - Windows 10 / 11
 
 :: ================================================================
-::  ADVANCED SYSTEM CARE  v3.2.4
+::  ADVANCED SYSTEM CARE  v3.3
 ::  (Cleanup + Repair + Services + Registry + QuickFix + Tweaks
 ::   + ONE-CLICK REPAIR ALL)
 :: ---------------------------------------------------------------
@@ -50,6 +50,13 @@ title Advanced System Care - Windows 10 / 11
 ::   * NEW     -auto flag: unattended mode (used by the scheduled
 ::             task, or manually: cleanup_advanced.bat -auto)
 ::   * NEW     auto runs log to %SystemDrive%\ASC_Logs\Cleanup.log
+::  v3.3 (2026-09-22):
+::   * NEW     MORE REPAIRS (menu E): icon cache rebuild, font cache
+::             rebuild, re-register Store / built-in apps, Start menu
+::             + taskbar shell repair, WMI repository repair, Windows
+::             Firewall reset (with backup), BITS queue reset, Windows
+::             Search index rebuild. Same confirm / task / summary
+::             pattern as every other repair.
 ::  v3.2.4 (2026-09-19):
 ::   * HARDEN  manual runs can no longer exit from the summary
 ::             screen (auto-mode exit moved to its own label) - a
@@ -84,6 +91,8 @@ title Advanced System Care - Windows 10 / 11
 :: ---------------------------------------------------------------
 ::  CLEANUP      QUICK / FULL / DEEP (temp, caches, update cache...)
 ::  REPAIR       SFC + DISM suite, network stack reset, WU reset
+::  MORE REPAIRS icon / font cache, Store apps, Start menu shell,
+::               WMI repository, firewall reset, BITS, search index
 ::  SERVICES     health scan of ~23 critical services vs their
 ::               correct start types + one-click repair
 ::  REGISTRY     fixes for classic regedit damage: EXE association,
@@ -264,7 +273,7 @@ if defined AUTO_MODE goto RUN_AUTO
 cls
 echo.
 echo  %C_H%==================================================================
-echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.2.4%C_H%
+echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.3%C_H%
 echo  %C_H%==================================================================%C_RESET%
 echo.
 echo    %C_OK%[R]%C_RESET% %C_HEAL%ONE-CLICK REPAIR ALL%C_RESET%  %C_DIM%- full automatic maintenance (30-90 min)%C_RESET%
@@ -280,6 +289,7 @@ echo    %C_HEAL%[5]%C_RESET% %C_ERR%Repair network stack%C_RESET%%C_DIM% - winso
 echo    %C_HEAL%[6]%C_RESET% %C_ERR%Reset Windows Update%C_RESET%%C_DIM%- rebuild update components from scratch%C_RESET%
 echo    %C_HEAL%[7]%C_RESET% %C_ERR%Service health check%C_RESET%%C_DIM%- scan ~23 critical services, fix broken ones%C_RESET%
 echo    %C_HEAL%[8]%C_RESET% %C_ERR%Registry fixes%C_RESET%     %C_DIM%- EXE, Task Manager, regedit, USB, policies%C_RESET%
+echo    %C_HEAL%[E]%C_RESET% %C_ERR%More repairs%C_RESET%       %C_DIM%- icons, fonts, Start menu, apps, WMI, firewall, search%C_RESET%
 echo.
 echo    %C_DIM%-- QUICK FIXES / TWEAKS ------------------------------------------%C_RESET%
 echo    %C_HEAL%[9]%C_RESET% %C_OK%Fix a common problem%C_RESET%%C_DIM% - printer, sound, bluetooth, store, time, RAM...%C_RESET%
@@ -311,9 +321,10 @@ if defined PROFILE_MISMATCH (
 )
 echo    %C_DIM%Log: %LOG_FILE%%C_RESET%
 echo.
-choice /c 123456789ABCDR0 /n /m "  Choose an option [R=Repair All, D=Auto-Care, 1-9, A-C, 0=Exit]: "
-if errorlevel 15 goto END
-if errorlevel 14 goto RUN_REPAIRALL
+choice /c 123456789ABCDER0 /n /m "  Choose an option [R=Repair All, E=More repairs, D=Auto-Care, 1-9, A-C, 0=Exit]: "
+if errorlevel 16 goto END
+if errorlevel 15 goto RUN_REPAIRALL
+if errorlevel 14 goto REPMENU
 if errorlevel 13 goto AUTOMENU
 if errorlevel 12 goto DISKINFO
 if errorlevel 11 goto OPTMENU
@@ -753,6 +764,122 @@ call :task "Unblock Control Panel"                 :r_cpanel
 goto SUMMARY
 
 
+:: ---------- 5d-plus. MORE REPAIRS (shell, caches, components) ----------
+:: Every entry follows the standard pattern: confirm -> start_run ->
+:: task(s) -> SUMMARY. To add another repair: add a menu line, add its
+:: key to the choice list (keep the errorlevel checks in DESCENDING
+:: order), add a :REP_xxx block here and a :t_xxx subroutine below.
+:REPMENU
+cls
+echo.
+echo  %C_H%------------------------------------------------------------------
+echo  %C_H%        MORE REPAIRS  %C_DIM%-  shell, caches, components%C_H%
+echo  %C_H%------------------------------------------------------------------%C_RESET%
+echo.
+echo    %C_OK%[1]%C_RESET% %C_INFO%Icons blank or wrong%C_RESET%       %C_DIM%- rebuild the icon cache %C_DIM%(restarts Explorer)%C_RESET%
+echo    %C_OK%[2]%C_RESET% %C_INFO%Fonts look broken%C_RESET%          %C_DIM%- rebuild the font cache%C_RESET%
+echo    %C_OK%[3]%C_RESET% %C_INFO%Start menu / taskbar dead%C_RESET%  %C_DIM%- restart + re-register the shell%C_RESET%
+echo    %C_OK%[4]%C_RESET% %C_INFO%Settings / apps won't open%C_RESET% %C_DIM%- re-register all built-in apps %C_WARN%(5-15 min)%C_RESET%
+echo    %C_OK%[5]%C_RESET% %C_INFO%WMI errors / odd tools%C_RESET%     %C_DIM%- verify + salvage the WMI repository%C_RESET%
+echo    %C_OK%[6]%C_RESET% %C_INFO%Firewall misbehaving%C_RESET%       %C_DIM%- reset Windows Firewall %C_DIM%(backup first)%C_RESET%
+echo    %C_OK%[7]%C_RESET% %C_INFO%Downloads / updates stuck%C_RESET%  %C_DIM%- reset the BITS transfer queue%C_RESET%
+echo    %C_OK%[8]%C_RESET% %C_INFO%Search index corrupt%C_RESET%       %C_DIM%- delete + rebuild the search index %C_WARN%(hours)%C_RESET%
+echo    %C_OK%[0]%C_RESET% %C_INFO%Back to main menu%C_RESET%
+echo.
+echo   %C_DIM%Caches are rebuilt by Windows automatically - nothing personal is deleted.%C_RESET%
+echo.
+choice /c 123456780 /n /m "  Choose a repair [1-8, 0=Back]: "
+if errorlevel 9 goto MENU
+if errorlevel 8 goto REP_SEARCHIDX
+if errorlevel 7 goto REP_BITS
+if errorlevel 6 goto REP_FIREWALL
+if errorlevel 5 goto REP_WMI
+if errorlevel 4 goto REP_APPX
+if errorlevel 3 goto REP_STARTMENU
+if errorlevel 2 goto REP_FONTCACHE
+if errorlevel 1 goto REP_ICONCACHE
+
+:REP_ICONCACHE
+cls
+echo.
+call :confirm "Rebuild the icon cache? Explorer restarts - open folder windows close."
+if errorlevel 2 goto REPMENU
+set "TASK_TOTAL=1"
+call :start_run "ICON CACHE REBUILD"
+call :task "Delete icon cache + restart Explorer"   :t_iconcache
+goto SUMMARY
+
+:REP_FONTCACHE
+cls
+echo.
+call :confirm "Rebuild the font cache? The font service restarts briefly."
+if errorlevel 2 goto REPMENU
+set "TASK_TOTAL=1"
+call :start_run "FONT CACHE REBUILD"
+call :task "Delete font cache + restart service"    :t_fontcache
+goto SUMMARY
+
+:REP_STARTMENU
+cls
+echo.
+call :confirm "Repair the Start menu / taskbar? The shell restarts - the screen flickers briefly."
+if errorlevel 2 goto REPMENU
+set "TASK_TOTAL=1"
+call :start_run "START MENU REPAIR"
+call :task "Re-register + restart shell hosts"      :t_startmenu
+goto SUMMARY
+
+:REP_APPX
+cls
+echo.
+call :confirm "Re-register ALL built-in apps for this account? Takes 5-15 min; red errors in the output are normal."
+if errorlevel 2 goto REPMENU
+set "TASK_TOTAL=1"
+call :start_run "APP RE-REGISTRATION"
+call :task "Re-register built-in Store apps"        :t_appxreg
+goto SUMMARY
+
+:REP_WMI
+cls
+echo.
+call :confirm "Verify and salvage the WMI repository? Safe - only rebuilds if inconsistent."
+if errorlevel 2 goto REPMENU
+set "TASK_TOTAL=1"
+call :start_run "WMI REPOSITORY REPAIR"
+call :task "winmgmt verify + salvagerepository"     :t_wmirepair
+goto SUMMARY
+
+:REP_FIREWALL
+cls
+echo.
+call :confirm "Reset Windows Firewall to defaults? CUSTOM RULES ARE REMOVED (a backup .wfw is saved first)."
+if errorlevel 2 goto REPMENU
+set "TASK_TOTAL=1"
+call :start_run "FIREWALL RESET"
+call :task "Backup + reset Windows Firewall"        :t_fwreset
+goto SUMMARY
+
+:REP_BITS
+cls
+echo.
+call :confirm "Reset the BITS queue? All pending background transfers (updates, Store) are cancelled and re-queued later."
+if errorlevel 2 goto REPMENU
+set "TASK_TOTAL=1"
+call :start_run "BITS QUEUE RESET"
+call :task "Cancel all BITS jobs + restart service" :t_bitsreset
+goto SUMMARY
+
+:REP_SEARCHIDX
+cls
+echo.
+call :confirm "Delete and rebuild the Windows Search index? Search is slow/incomplete for HOURS while it re-indexes."
+if errorlevel 2 goto REPMENU
+set "TASK_TOTAL=1"
+call :start_run "SEARCH INDEX REBUILD"
+call :task "Delete index database + restart search" :t_searchrebuild
+goto SUMMARY
+
+
 :: ---------- 5e. TWEAKS (popular, reversible, MajorGeeks-style) ----------
 :TWKMENU
 cls
@@ -1000,7 +1127,7 @@ exit /b 0
 cls
 echo.
 echo  %C_H%------------------------------------------------------------------
-echo  %C_H%        QUICK FIXES for common problems  %C_DIM%v3.2.4%C_H%
+echo  %C_H%        QUICK FIXES for common problems  %C_DIM%v3.3%C_H%
 echo  %C_H%------------------------------------------------------------------%C_RESET%
 echo.
 echo    %C_OK%[1]%C_RESET% %C_INFO%Printer not printing%C_RESET%    %C_DIM%- clear stuck queue + restart spooler%C_RESET%
@@ -2281,6 +2408,235 @@ if not defined R_ANY if not defined R_FOUND (
 )
 echo         %C_OK%Control Panel and Settings unblocked.%C_RESET%
 >>"%LOG_FILE%" echo [%TIME:~0,8%] registry - NoControlPanel removed
+exit /b 0
+
+:: ============ MORE REPAIRS subroutines (menu E) ============
+
+:: -- shared: restart Explorer the same way :t_explorer does --
+:rep_restart_explorer
+taskkill /f /im explorer.exe >nul 2>&1
+timeout /t 2 /nobreak >nul 2>&1
+tasklist /fi "imagename eq explorer.exe" 2>nul | find /i "explorer.exe" >nul 2>&1
+if not errorlevel 1 goto :eof
+start explorer.exe
+goto :eof
+
+:: -- 1: icon cache rebuild (blank / wrong / generic icons) --
+:: Cleans the cache of EVERY profile - the elevated account may not be
+:: the everyday one (see PROFILE_MISMATCH). Locked files of other
+:: signed-in sessions are skipped silently, that is normal.
+:t_iconcache
+call :require_env SystemDrive || ( set "TASK_SKIPPED=1" & exit /b 0 )
+echo.
+echo         %C_DIM%Stopping Explorer and deleting icon cache files...%C_RESET%
+taskkill /f /im explorer.exe >nul 2>&1
+timeout /t 2 /nobreak >nul 2>&1
+set /a ICO_N=0
+for /d %%U in ("%SystemDrive%\Users\*") do (
+    if /i not "%%~nxU"=="Public" if /i not "%%~nxU"=="Default" if /i not "%%~nxU"=="Default User" if /i not "%%~nxU"=="All Users" (
+        if exist "%%U\AppData\Local\IconCache.db" (
+            del /f /q /a "%%U\AppData\Local\IconCache.db" >nul 2>&1
+            if not exist "%%U\AppData\Local\IconCache.db" set /a ICO_N+=1
+        )
+        for %%F in ("%%U\AppData\Local\Microsoft\Windows\Explorer\iconcache_*.db") do (
+            del /f /q /a "%%F" >nul 2>&1
+            if not exist "%%F" set /a ICO_N+=1
+        )
+    )
+)
+ie4uinit.exe -show >nul 2>&1
+call :rep_restart_explorer
+echo         %C_OK%Icon cache cleared - %ICO_N% cache files removed, Explorer restarted.%C_RESET%
+echo         %C_DIM%Icons are rebuilt on the fly. Still wrong? Sign out and back in.%C_RESET%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] icon cache rebuilt - %ICO_N% files removed
+exit /b 0
+
+:: -- 2: font cache rebuild (garbled / missing fonts, boxes for glyphs) --
+:t_fontcache
+call :require_env SystemRoot || ( set "TASK_SKIPPED=1" & exit /b 0 )
+echo.
+echo         %C_DIM%Stopping font cache services...%C_RESET%
+net stop FontCache /y >nul 2>&1
+net stop FontCache3.0.0.0 /y >nul 2>&1
+timeout /t 2 /nobreak >nul 2>&1
+echo         %C_DIM%Deleting cached font data...%C_RESET%
+del /f /q /a "%SystemRoot%\ServiceProfiles\LocalService\AppData\Local\FontCache\*" >nul 2>&1
+del /f /q /a "%SystemRoot%\System32\FNTCACHE.DAT" >nul 2>&1
+net start FontCache >nul 2>&1
+sc query FontCache | find /i "RUNNING" >nul 2>&1
+if errorlevel 1 (
+    echo         %C_ERR%Font cache service did not restart - reboot, it starts automatically.%C_RESET%
+    >>"%LOG_FILE%" echo [%TIME:~0,8%] font cache cleared but FontCache did not restart
+    set "REBOOT_ADVISED=1"
+    exit /b 1
+)
+echo         %C_OK%Font cache rebuilt - the service is running again.%C_RESET%
+echo         %C_DIM%Open apps may show old fonts until they are restarted.%C_RESET%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] font cache rebuilt
+exit /b 0
+
+:: -- 3: Start menu / taskbar repair --
+:: Re-registers the two shell packages for the current account, then
+:: restarts the shell hosts + Explorer. Cheap, no reboot needed.
+:t_startmenu
+echo.
+echo         %C_DIM%Re-registering StartMenuExperienceHost + ShellExperienceHost...%C_RESET%
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ok=0; Get-AppxPackage | Where-Object { $_.Name -eq 'Microsoft.Windows.StartMenuExperienceHost' -or $_.Name -eq 'Microsoft.Windows.ShellExperienceHost' } | ForEach-Object { try { Add-AppxPackage -DisableDevelopmentMode -Register ($_.InstallLocation + '\AppxManifest.xml') -ErrorAction Stop; $ok++ } catch {} }; exit 0" >nul 2>&1
+echo         %C_DIM%Restarting shell hosts and Explorer...%C_RESET%
+taskkill /f /im StartMenuExperienceHost.exe >nul 2>&1
+taskkill /f /im ShellExperienceHost.exe >nul 2>&1
+taskkill /f /im SearchHost.exe >nul 2>&1
+taskkill /f /im SearchApp.exe >nul 2>&1
+taskkill /f /im SearchUI.exe >nul 2>&1
+call :rep_restart_explorer
+echo         %C_OK%Shell restarted - press the Windows key to test the Start menu.%C_RESET%
+echo         %C_DIM%Still dead? Run option 4 ^(re-register all apps^), then sign out and back in.%C_RESET%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] Start menu shell re-registered and restarted
+exit /b 0
+
+:: -- 4: re-register all built-in / Store apps for the CURRENT account --
+:: Classic fix for Settings, Calculator, Photos, Store "not opening".
+:: Per-package errors (staged / framework / removed packages) are
+:: expected and only counted, the task itself succeeds.
+:t_appxreg
+echo.
+echo         %C_DIM%Re-registering every installed app package - 5-15 min, please wait...%C_RESET%
+echo         %C_DIM%^(errors about individual packages are normal and can be ignored^)%C_RESET%
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ok=0; $bad=0; Get-AppxPackage -AllUsers | Where-Object { $_.InstallLocation -and (Test-Path ($_.InstallLocation + '\AppxManifest.xml')) } | ForEach-Object { try { Add-AppxPackage -DisableDevelopmentMode -Register ($_.InstallLocation + '\AppxManifest.xml') -ErrorAction Stop; $ok++ } catch { $bad++ } }; '{0} {1}' -f $ok, $bad | Out-File -Encoding ascii '%LOG_DIR%\appx_out.txt'; exit 0" >nul 2>&1
+set "APPX_OK=0"
+set "APPX_BAD=0"
+if exist "%LOG_DIR%\appx_out.txt" for /f "tokens=1,2" %%a in ('type "%LOG_DIR%\appx_out.txt"') do (
+    set "APPX_OK=%%a"
+    set "APPX_BAD=%%b"
+)
+>>"%LOG_FILE%" echo [%TIME:~0,8%] appx re-register - %APPX_OK% ok, %APPX_BAD% skipped/failed
+if "%APPX_OK%"=="0" (
+    echo         %C_ERR%No package could be re-registered - see %LOG_DIR%\appx_out.txt%C_RESET%
+    exit /b 1
+)
+set "REBOOT_ADVISED=1"
+echo         %C_OK%%APPX_OK% packages re-registered%C_RESET% %C_DIM%^(%APPX_BAD% skipped - normal^).%C_RESET%
+echo         %C_DIM%Sign out and back in so the apps pick up the new registration.%C_RESET%
+if defined PROFILE_MISMATCH echo         %C_WARN%Note: this registered apps for the ADMIN account "%USERNAME%", not "%ORIG_USER%".%C_RESET%
+exit /b 0
+
+:: -- 5: WMI repository repair (Task Manager perf tab empty, SCCM /
+:: PowerShell Get-CimInstance errors, "WMI invalid class") --
+:: verifyrepository first (read-only), salvagerepository only rebuilds
+:: what is inconsistent and keeps the rest. NO resetrepository here -
+:: that wipes third-party providers and is a last resort by hand.
+:t_wmirepair
+echo.
+echo         %C_DIM%Verifying the WMI repository...%C_RESET%
+winmgmt /verifyrepository
+set "WMI_VRC=%errorlevel%"
+>>"%LOG_FILE%" echo [%TIME:~0,8%] winmgmt /verifyrepository - exit code %WMI_VRC%
+echo         %C_DIM%Running salvagerepository ^(safe - keeps consistent data^)...%C_RESET%
+winmgmt /salvagerepository
+set "WMI_SRC=%errorlevel%"
+>>"%LOG_FILE%" echo [%TIME:~0,8%] winmgmt /salvagerepository - exit code %WMI_SRC%
+net start winmgmt >nul 2>&1
+if not "%WMI_SRC%"=="0" (
+    echo         %C_ERR%Salvage reported exit code %WMI_SRC% - reboot and run again.%C_RESET%
+    echo         %C_DIM%Last resort ^(by hand, loses 3rd-party providers^): winmgmt /resetrepository%C_RESET%
+    set "REBOOT_ADVISED=1"
+    exit /b %WMI_SRC%
+)
+echo         %C_OK%WMI repository verified/salvaged - a restart applies it fully.%C_RESET%
+set "REBOOT_ADVISED=1"
+exit /b 0
+
+:: -- 6: Windows Firewall reset (blocked apps, broken sharing, rules
+:: mangled by uninstalled security software) - EXPORTS A BACKUP FIRST --
+:t_fwreset
+set "FW_STAMP=%DATE:/=-%_%TIME:~0,2%%TIME:~3,2%"
+set "FW_STAMP=%FW_STAMP: =0%"
+set "FW_STAMP=%FW_STAMP::=%"
+set "FW_BAK=%LOG_DIR%\firewall_backup_%FW_STAMP%.wfw"
+echo.
+echo         %C_DIM%Backing up current firewall policy...%C_RESET%
+netsh advfirewall export "%FW_BAK%" >nul 2>&1
+if not exist "%FW_BAK%" (
+    echo         %C_ERR%Backup failed - firewall NOT reset ^(refusing to reset without a backup^).%C_RESET%
+    >>"%LOG_FILE%" echo [%TIME:~0,8%] firewall reset ABORTED - export failed
+    exit /b 1
+)
+echo         %C_DIM%Backup: %FW_BAK%%C_RESET%
+echo         %C_DIM%Resetting Windows Firewall to defaults...%C_RESET%
+netsh advfirewall reset >nul 2>&1
+set "FW_RC=%errorlevel%"
+sc config mpssvc start= auto >nul 2>&1
+net start mpssvc >nul 2>&1
+if not "%FW_RC%"=="0" (
+    echo         %C_ERR%Reset failed - exit code %FW_RC%. Restore: netsh advfirewall import "%FW_BAK%"%C_RESET%
+    >>"%LOG_FILE%" echo [%TIME:~0,8%] firewall reset FAILED - exit code %FW_RC%
+    exit /b %FW_RC%
+)
+echo         %C_OK%Firewall reset to defaults - all profiles ON.%C_RESET%
+echo         %C_DIM%Apps ask for network permission again the first time. Undo:%C_RESET%
+echo         %C_DIM%netsh advfirewall import "%FW_BAK%"%C_RESET%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] firewall reset done - backup %FW_BAK%
+exit /b 0
+
+:: -- 7: BITS queue reset (Windows Update / Store downloads stuck at
+:: 0 percent, error 0x80200xxx, bitsadmin shows hundreds of dead jobs) --
+:t_bitsreset
+echo.
+echo         %C_DIM%Cancelling all BITS jobs of all users...%C_RESET%
+bitsadmin /reset /allusers >nul 2>&1
+set "BITS_RC=%errorlevel%"
+if "%BITS_RC%"=="0" goto :bits_done
+:: service may be stopped / broken - restart it and retry once
+net stop bits /y >nul 2>&1
+timeout /t 1 /nobreak >nul 2>&1
+net start bits >nul 2>&1
+bitsadmin /reset /allusers >nul 2>&1
+set "BITS_RC=%errorlevel%"
+:bits_done
+sc query bits | find /i "RUNNING" >nul 2>&1
+if errorlevel 1 net start bits >nul 2>&1
+>>"%LOG_FILE%" echo [%TIME:~0,8%] bitsadmin /reset /allusers - exit code %BITS_RC%
+if not "%BITS_RC%"=="0" (
+    echo         %C_ERR%BITS queue reset failed - exit code %BITS_RC%. Try menu 6 ^(WU reset^) instead.%C_RESET%
+    exit /b %BITS_RC%
+)
+echo         %C_OK%BITS queue cleared - stuck downloads are re-created on the next check.%C_RESET%
+exit /b 0
+
+:: -- 8: Windows Search index rebuild (search returns nothing / wrong
+:: results even after :t_wsearch). Deletes the database, Windows
+:: rebuilds it in the background - hours on a big user profile. --
+:t_searchrebuild
+call :require_env ProgramData || ( set "TASK_SKIPPED=1" & exit /b 0 )
+echo.
+echo         %C_DIM%Stopping Windows Search...%C_RESET%
+net stop WSearch /y >nul 2>&1
+timeout /t 2 /nobreak >nul 2>&1
+echo         %C_DIM%Deleting the index database...%C_RESET%
+del /f /q /a "%ProgramData%\Microsoft\Search\Data\Applications\Windows\Windows.edb" >nul 2>&1
+del /f /q /a "%ProgramData%\Microsoft\Search\Data\Applications\Windows\Windows.db" >nul 2>&1
+del /f /q /a "%ProgramData%\Microsoft\Search\Data\Applications\Windows\Windows.db-wal" >nul 2>&1
+set "IDX_LOCKED="
+if exist "%ProgramData%\Microsoft\Search\Data\Applications\Windows\Windows.edb" set "IDX_LOCKED=1"
+if exist "%ProgramData%\Microsoft\Search\Data\Applications\Windows\Windows.db" set "IDX_LOCKED=1"
+if defined IDX_LOCKED (
+    net start WSearch >nul 2>&1
+    echo         %C_ERR%Index file is locked - close Outlook / Explorer windows and try again.%C_RESET%
+    >>"%LOG_FILE%" echo [%TIME:~0,8%] search index rebuild ABORTED - index database locked
+    exit /b 1
+)
+:: tell the indexer to run its first-time setup again
+reg add "HKLM\SOFTWARE\Microsoft\Windows Search" /v SetupCompletedSuccessfully /t REG_DWORD /d 0 /f >nul 2>&1
+net start WSearch >nul 2>&1
+sc query WSearch | find /i "RUNNING" >nul 2>&1
+if errorlevel 1 (
+    echo         %C_ERR%Search service did not restart - a reboot starts it and the rebuild.%C_RESET%
+    set "REBOOT_ADVISED=1"
+    exit /b 1
+)
+echo         %C_OK%Index deleted - Windows Search is rebuilding it in the background.%C_RESET%
+echo         %C_DIM%Progress: Settings - Search - Searching Windows ^(indexing status^).%C_RESET%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] search index deleted - rebuild started
 exit /b 0
 
 :: -- Repair sequence, also used by AUTO-HEAL --

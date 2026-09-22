@@ -30,6 +30,7 @@ Windows built-in (`sfc`, `dism`, `powercfg`, `reg`, `sc`, `netsh`, …).
 | `6` | **Reset Windows Update** — stops update services, moves `SoftwareDistribution`/`catroot2` to `*.old` |
 | `7` | **Service health check** — scans 23 critical services against their correct start type, repairs with per-service confirmation |
 | `8` | **Registry fixes** — EXE association, Task Manager, CMD, Regedit, Run dialog, Folder Options, USB storage, Control Panel locks |
+| `E` | **More repairs** — icon cache, font cache, Start menu / taskbar shell, re-register built-in apps, WMI repository, Windows Firewall reset (with backup), BITS queue, Search index rebuild (see below) |
 | `9` | **Quick fixes** — printer, audio, Bluetooth, Store (WSReset), time sync, search indexer, CHKDSK, System Restore, RAM test — plus the **Troubleshooting** section (see below) |
 | `A` | **Windows tweaks** — each with Apply/Restore: Photo Viewer, extensions, hidden files, Take Ownership, shortcut arrows, Bing off, menu speed, GameDVR off, lock screen |
 | `B` | **Optimization** — drive TRIM/defrag, power plans, startup delay, Explorer restart, hibernation on/off |
@@ -38,6 +39,47 @@ Windows built-in (`sfc`, `dism`, `powercfg`, `reg`, `sc`, `netsh`, …).
 
 Every destructive question is a real Y/N confirmation. `N` actually cancels
 (fixed in v3.0 — in v2.9 every "No" silently fell through as "Yes").
+
+## More repairs (menu `E`, keys `1`–`8`)
+
+| Key | Problem | What it does |
+|-----|---------|--------------|
+| `1` | Icons blank or wrong | Deletes `IconCache.db` + `iconcache_*.db` for every profile, restarts Explorer |
+| `2` | Fonts look broken | Stops `FontCache`, deletes the font cache files + `FNTCACHE.DAT`, restarts the service |
+| `3` | Start menu / taskbar dead | Re-registers `StartMenuExperienceHost` / `ShellExperienceHost`, restarts the shell hosts + Explorer |
+| `4` | Settings / built-in apps won't open | `Add-AppxPackage -Register` for every installed package (5–15 min; per-package errors are counted, not fatal) |
+| `5` | WMI errors | `winmgmt /verifyrepository` + `/salvagerepository` (never `/resetrepository` — that is left to you) |
+| `6` | Firewall misbehaving | Exports a `.wfw` backup to the log folder **first**, then `netsh advfirewall reset`; the undo command is printed |
+| `7` | Downloads / updates stuck | `bitsadmin /reset /allusers`, restarts BITS if needed |
+| `8` | Search index corrupt | Stops Search, deletes `Windows.edb`, flags first-time setup, restarts — re-indexing takes hours |
+
+Each one is a normal confirm → run → summary task, so it appears in the
+log and the summary screen like every other repair. `4`, `5` and `8`
+set the *restart recommended* flag.
+
+### Adding your own repair
+
+Every repair in `cleanup_advanced.bat` is four small pieces — copy an
+existing one (e.g. `:REP_FONTCACHE` / `:t_fontcache`) and adjust:
+
+1. **Menu line** in `:REPMENU` — `echo    %C_OK%[9]%C_RESET% ...`.
+2. **Key routing** — add the key to the `choice /c 123456780` list and add
+   `if errorlevel N goto REP_xxx`. Keep the `if errorlevel` checks in
+   **descending** order (`errorlevel N` is true for every value ≥ N).
+3. **Run block** — `:REP_xxx` → `call :confirm "…"` → `if errorlevel 2 goto REPMENU`
+   → `set "TASK_TOTAL=1"` → `call :start_run "LABEL"` → `call :task "text" :t_xxx`
+   → `goto SUMMARY`.
+4. **Subroutine** — `:t_xxx` that does the work and ends with `exit /b 0`
+   on success, a non-zero code on a real failure, or sets `TASK_SKIPPED=1`
+   + `exit /b 0` for a deliberate skip. Log with
+   `>>"%LOG_FILE%" echo [%TIME:~0,8%] …` and set `REBOOT_ADVISED=1` when a
+   restart is needed. Guard any path built from an env var with
+   `call :require_env VAR || ( set "TASK_SKIPPED=1" & exit /b 0 )`.
+
+Batch gotchas: use `rem` (not `::`) for comments inside `( … )` blocks,
+escape parentheses in `echo` text inside blocks as `^(` / `^)`, and never
+use `if errorlevel` after an `echo` when you need the previous command's
+code — capture it into a variable first.
 
 ## Troubleshooting section (menu `9`, keys `A`–`I`)
 
@@ -139,6 +181,10 @@ cleanup_advanced.bat -auto
 
 ## Versioning
 
+- **v3.3** (2026-09-22) — More repairs (menu `E`): icon cache, font
+  cache, Start menu shell, app re-registration, WMI repository, firewall
+  reset with backup, BITS queue reset, Search index rebuild. README now
+  documents how to add a repair.
 - **v3.2.4** (2026-09-19) — Hardening: the summary
   screen's auto-mode exit moved to its own label, so a manual
   run can never be killed from that screen (protects against
