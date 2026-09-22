@@ -55,8 +55,11 @@ title Advanced System Care - Windows 10 / 11
 ::             rebuild, re-register Store / built-in apps, Start menu
 ::             + taskbar shell repair, WMI repository repair, Windows
 ::             Firewall reset (with backup), BITS queue reset, Windows
-::             Search index rebuild. Same confirm / task / summary
-::             pattern as every other repair.
+::             Search index rebuild, proxy reset, hosts file reset,
+::             performance counter rebuild, Windows Installer
+::             re-register, Explorer folder view reset, OneDrive
+::             reset. Same confirm / task / summary pattern as every
+::             other repair; backups go to the log folder.
 ::  v3.2.4 (2026-09-19):
 ::   * HARDEN  manual runs can no longer exit from the summary
 ::             screen (auto-mode exit moved to its own label) - a
@@ -92,7 +95,9 @@ title Advanced System Care - Windows 10 / 11
 ::  CLEANUP      QUICK / FULL / DEEP (temp, caches, update cache...)
 ::  REPAIR       SFC + DISM suite, network stack reset, WU reset
 ::  MORE REPAIRS icon / font cache, Store apps, Start menu shell,
-::               WMI repository, firewall reset, BITS, search index
+::               WMI repository, firewall reset, BITS, search index,
+::               proxy, hosts file, perf counters, Windows Installer,
+::               folder views, OneDrive
 ::  SERVICES     health scan of ~23 critical services vs their
 ::               correct start types + one-click repair
 ::  REGISTRY     fixes for classic regedit damage: EXE association,
@@ -784,12 +789,27 @@ echo    %C_OK%[5]%C_RESET% %C_INFO%WMI errors / odd tools%C_RESET%     %C_DIM%- 
 echo    %C_OK%[6]%C_RESET% %C_INFO%Firewall misbehaving%C_RESET%       %C_DIM%- reset Windows Firewall %C_DIM%(backup first)%C_RESET%
 echo    %C_OK%[7]%C_RESET% %C_INFO%Downloads / updates stuck%C_RESET%  %C_DIM%- reset the BITS transfer queue%C_RESET%
 echo    %C_OK%[8]%C_RESET% %C_INFO%Search index corrupt%C_RESET%       %C_DIM%- delete + rebuild the search index %C_WARN%(hours)%C_RESET%
+echo.
+echo    %C_DIM%-- CONNECTIVITY / SHELL / COMPONENTS ------------------------------%C_RESET%
+echo    %C_OK%[9]%C_RESET% %C_INFO%Browser works, apps don't%C_RESET%  %C_DIM%- reset proxy settings %C_DIM%(WinHTTP + user)%C_RESET%
+echo    %C_OK%[A]%C_RESET% %C_INFO%Sites redirect / blocked%C_RESET%   %C_DIM%- restore the default hosts file %C_DIM%(backup first)%C_RESET%
+echo    %C_OK%[B]%C_RESET% %C_INFO%Task Manager graphs empty%C_RESET%  %C_DIM%- rebuild performance counters%C_RESET%
+echo    %C_OK%[C]%C_RESET% %C_INFO%Installer service error%C_RESET%    %C_DIM%- re-register Windows Installer %C_DIM%(msiexec)%C_RESET%
+echo    %C_OK%[D]%C_RESET% %C_INFO%Folder views forgotten%C_RESET%     %C_DIM%- reset Explorer view settings %C_DIM%(backup first)%C_RESET%
+echo    %C_OK%[E]%C_RESET% %C_INFO%OneDrive stuck syncing%C_RESET%     %C_DIM%- OneDrive reset %C_DIM%(skips if not installed)%C_RESET%
 echo    %C_OK%[0]%C_RESET% %C_INFO%Back to main menu%C_RESET%
 echo.
 echo   %C_DIM%Caches are rebuilt by Windows automatically - nothing personal is deleted.%C_RESET%
+echo   %C_DIM%Anything overwritten (hosts, proxy, folder views) is backed up to the log folder.%C_RESET%
 echo.
-choice /c 123456780 /n /m "  Choose a repair [1-8, 0=Back]: "
-if errorlevel 9 goto MENU
+choice /c 123456789ABCDE0 /n /m "  Choose a repair [1-9, A-E, 0=Back]: "
+if errorlevel 15 goto MENU
+if errorlevel 14 goto REP_ONEDRIVE
+if errorlevel 13 goto REP_FOLDERVIEW
+if errorlevel 12 goto REP_MSI
+if errorlevel 11 goto REP_PERFCTR
+if errorlevel 10 goto REP_HOSTS
+if errorlevel 9 goto REP_PROXY
 if errorlevel 8 goto REP_SEARCHIDX
 if errorlevel 7 goto REP_BITS
 if errorlevel 6 goto REP_FIREWALL
@@ -877,6 +897,66 @@ if errorlevel 2 goto REPMENU
 set "TASK_TOTAL=1"
 call :start_run "SEARCH INDEX REBUILD"
 call :task "Delete index database + restart search" :t_searchrebuild
+goto SUMMARY
+
+:REP_PROXY
+cls
+echo.
+call :confirm "Reset proxy settings to 'no proxy / auto-detect'? If you NEED a company proxy, answer No."
+if errorlevel 2 goto REPMENU
+set "TASK_TOTAL=1"
+call :start_run "PROXY RESET"
+call :task "Reset WinHTTP + user proxy settings"    :t_proxyreset
+goto SUMMARY
+
+:REP_HOSTS
+cls
+echo.
+call :confirm "Restore the default hosts file? Custom entries are removed (a backup copy is saved first)."
+if errorlevel 2 goto REPMENU
+set "TASK_TOTAL=1"
+call :start_run "HOSTS FILE RESET"
+call :task "Backup + restore default hosts file"    :t_hostsreset
+goto SUMMARY
+
+:REP_PERFCTR
+cls
+echo.
+call :confirm "Rebuild the performance counter registry from the backup store? Safe, takes a minute."
+if errorlevel 2 goto REPMENU
+set "TASK_TOTAL=1"
+call :start_run "PERFORMANCE COUNTER REBUILD"
+call :task "lodctr /R + WMI perf resync"            :t_perfctr
+goto SUMMARY
+
+:REP_MSI
+cls
+echo.
+call :confirm "Re-register the Windows Installer service (msiexec)? Close any running installers first."
+if errorlevel 2 goto REPMENU
+set "TASK_TOTAL=1"
+call :start_run "WINDOWS INSTALLER REPAIR"
+call :task "msiexec unregister + regserver"         :t_msireg
+goto SUMMARY
+
+:REP_FOLDERVIEW
+cls
+echo.
+call :confirm "Reset ALL Explorer folder view settings to defaults? Explorer restarts (registry backup is saved first)."
+if errorlevel 2 goto REPMENU
+set "TASK_TOTAL=1"
+call :start_run "FOLDER VIEW RESET"
+call :task "Backup + clear Bags/BagMRU/Streams"     :t_folderviews
+goto SUMMARY
+
+:REP_ONEDRIVE
+cls
+echo.
+call :confirm "Reset OneDrive? Sync state is rebuilt - files stay, it may re-scan for a while."
+if errorlevel 2 goto REPMENU
+set "TASK_TOTAL=1"
+call :start_run "ONEDRIVE RESET"
+call :task "OneDrive.exe /reset + relaunch"         :t_onedrive
 goto SUMMARY
 
 
@@ -2637,6 +2717,224 @@ if errorlevel 1 (
 echo         %C_OK%Index deleted - Windows Search is rebuilding it in the background.%C_RESET%
 echo         %C_DIM%Progress: Settings - Search - Searching Windows ^(indexing status^).%C_RESET%
 >>"%LOG_FILE%" echo [%TIME:~0,8%] search index deleted - rebuild started
+exit /b 0
+
+:: -- 9: proxy reset (browser fine, but Store / Update / apps offline;
+:: classic leftover of removed AV, VPN or adware) --
+:: Backs up the Internet Settings key first. Writes to the CURRENT
+:: (possibly elevated) profile - see PROFILE_MISMATCH note.
+:t_proxyreset
+set "PX_KEY=HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+echo.
+echo         %C_DIM%Backing up Internet Settings key...%C_RESET%
+call :regbak "%PX_KEY%" "internet_settings_%USERNAME%"
+echo         %C_DIM%Resetting WinHTTP (system) proxy...%C_RESET%
+netsh winhttp reset proxy >nul 2>&1
+set "PX_RC=%errorlevel%"
+echo         %C_DIM%Clearing user proxy settings...%C_RESET%
+reg add "%PX_KEY%" /v ProxyEnable /t REG_DWORD /d 0 /f >nul 2>&1
+reg delete "%PX_KEY%" /v ProxyServer /f >nul 2>&1
+reg delete "%PX_KEY%" /v ProxyOverride /f >nul 2>&1
+reg delete "%PX_KEY%" /v AutoConfigURL /f >nul 2>&1
+:: policy-forced proxy (ProxySettingsPerUser=0) is also a common hijack
+reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxySettingsPerUser /f >nul 2>&1
+ipconfig /flushdns >nul 2>&1
+>>"%LOG_FILE%" echo [%TIME:~0,8%] proxy reset - winhttp exit code %PX_RC% - user keys cleared
+if not "%PX_RC%"=="0" (
+    echo         %C_ERR%WinHTTP reset returned %PX_RC% - user settings were still cleared.%C_RESET%
+    exit /b %PX_RC%
+)
+echo         %C_OK%Proxy reset - direct connection / auto-detect.%C_RESET%
+echo         %C_DIM%Restart browsers and apps. Backup: %REG_BAK_DIR%\internet_settings_%USERNAME%.reg%C_RESET%
+if defined PROFILE_MISMATCH echo         %C_WARN%Note: cleared for the ADMIN account "%USERNAME%", not "%ORIG_USER%".%C_RESET%
+exit /b 0
+
+:: -- A: hosts file reset (redirected sites, Microsoft servers blocked,
+:: activation / update failures caused by an edited hosts file) --
+:t_hostsreset
+call :require_env SystemRoot || ( set "TASK_SKIPPED=1" & exit /b 0 )
+set "HOSTS_FILE=%SystemRoot%\System32\drivers\etc\hosts"
+set "HOSTS_STAMP=%DATE:/=-%_%TIME:~0,2%%TIME:~3,2%"
+set "HOSTS_STAMP=%HOSTS_STAMP: =0%"
+set "HOSTS_STAMP=%HOSTS_STAMP::=%"
+set "HOSTS_BAK=%LOG_DIR%\hosts_backup_%HOSTS_STAMP%.txt"
+echo.
+if not exist "%HOSTS_FILE%" (
+    echo         %C_WARN%No hosts file present - creating the default one.%C_RESET%
+) else (
+    echo         %C_DIM%Backing up current hosts file...%C_RESET%
+    copy /y "%HOSTS_FILE%" "%HOSTS_BAK%" >nul 2>&1
+    if not exist "%HOSTS_BAK%" (
+        echo         %C_ERR%Backup failed - hosts file NOT touched.%C_RESET%
+        >>"%LOG_FILE%" echo [%TIME:~0,8%] hosts reset ABORTED - backup failed
+        exit /b 1
+    )
+)
+set "HOSTS_N=0"
+if exist "%HOSTS_FILE%" for /f %%a in ('type "%HOSTS_FILE%" ^| findstr /v /b /c:"#" ^| findstr /r /v "^$" ^| find /c /v ""') do set "HOSTS_N=%%a"
+echo         %C_DIM%Writing default hosts file ^(%HOSTS_N% active entries removed^)...%C_RESET%
+attrib -r -h -s "%HOSTS_FILE%" >nul 2>&1
+> "%HOSTS_FILE%" echo # Copyright (c) 1993-2009 Microsoft Corp.
+>>"%HOSTS_FILE%" echo #
+>>"%HOSTS_FILE%" echo # This is a sample HOSTS file used by Microsoft TCP/IP for Windows.
+>>"%HOSTS_FILE%" echo #
+>>"%HOSTS_FILE%" echo # This file contains the mappings of IP addresses to host names. Each
+>>"%HOSTS_FILE%" echo # entry should be kept on an individual line. The IP address should
+>>"%HOSTS_FILE%" echo # be placed in the first column followed by the corresponding host name.
+>>"%HOSTS_FILE%" echo # The IP address and the host name should be separated by at least one
+>>"%HOSTS_FILE%" echo # space.
+>>"%HOSTS_FILE%" echo #
+>>"%HOSTS_FILE%" echo # Additionally, comments (such as these) may be inserted on individual
+>>"%HOSTS_FILE%" echo # lines or following the machine name denoted by a '#' symbol.
+>>"%HOSTS_FILE%" echo #
+>>"%HOSTS_FILE%" echo # For example:
+>>"%HOSTS_FILE%" echo #
+>>"%HOSTS_FILE%" echo #      102.54.94.97     rhino.acme.com          # source server
+>>"%HOSTS_FILE%" echo #       38.25.63.10     x.acme.com              # x client host
+>>"%HOSTS_FILE%" echo.
+>>"%HOSTS_FILE%" echo # localhost name resolution is handled within DNS itself.
+>>"%HOSTS_FILE%" echo #	127.0.0.1       localhost
+>>"%HOSTS_FILE%" echo #	::1             localhost
+if not exist "%HOSTS_FILE%" (
+    echo         %C_ERR%Could not write the hosts file - is it locked by security software?%C_RESET%
+    >>"%LOG_FILE%" echo [%TIME:~0,8%] hosts reset FAILED - write blocked
+    exit /b 1
+)
+ipconfig /flushdns >nul 2>&1
+echo         %C_OK%Default hosts file restored, DNS cache flushed.%C_RESET%
+if exist "%HOSTS_BAK%" echo         %C_DIM%Backup: %HOSTS_BAK%%C_RESET%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] hosts file reset - %HOSTS_N% entries removed - backup %HOSTS_BAK%
+exit /b 0
+
+:: -- B: performance counter rebuild (Task Manager / Resource Monitor
+:: show nothing, "counters are disabled", event 1008/3001 Perflib) --
+:: lodctr /R must run from BOTH System32 and SysWOW64 on 64-bit.
+:t_perfctr
+call :require_env SystemRoot || ( set "TASK_SKIPPED=1" & exit /b 0 )
+echo.
+echo         %C_DIM%Rebuilding counters from the backup store ^(System32^)...%C_RESET%
+pushd "%SystemRoot%\System32"
+lodctr /R >nul 2>&1
+set "PC_RC=%errorlevel%"
+popd
+if exist "%SystemRoot%\SysWOW64\lodctr.exe" (
+    echo         %C_DIM%Rebuilding 32-bit counters ^(SysWOW64^)...%C_RESET%
+    pushd "%SystemRoot%\SysWOW64"
+    lodctr /R >nul 2>&1
+    popd
+)
+:: lodctr sometimes reports failure from one location and success from
+:: the other - retry System32 once if the first pass failed
+if not "%PC_RC%"=="0" (
+    pushd "%SystemRoot%\System32"
+    lodctr /R >nul 2>&1
+    popd
+)
+echo         %C_DIM%Resyncing WMI performance classes...%C_RESET%
+winmgmt /resyncperf >nul 2>&1
+set "PC_RC2=%errorlevel%"
+>>"%LOG_FILE%" echo [%TIME:~0,8%] lodctr /R exit code %PC_RC% - resyncperf exit code %PC_RC2%
+if not "%PC_RC2%"=="0" (
+    echo         %C_ERR%WMI resync returned %PC_RC2% - run option 5 ^(WMI repair^), then retry.%C_RESET%
+    exit /b %PC_RC2%
+)
+echo         %C_OK%Performance counters rebuilt - reopen Task Manager to check.%C_RESET%
+echo         %C_DIM%Still empty? Restart the PC - the Perflib providers reload at boot.%C_RESET%
+exit /b 0
+
+:: -- C: Windows Installer re-register ("service could not be accessed",
+:: error 1719, MSI installs hang or fail immediately) --
+:t_msireg
+echo.
+echo         %C_DIM%Stopping Windows Installer service...%C_RESET%
+net stop msiserver /y >nul 2>&1
+echo         %C_DIM%Re-registering msiexec...%C_RESET%
+msiexec /unregister >nul 2>&1
+timeout /t 1 /nobreak >nul 2>&1
+msiexec /regserver >nul 2>&1
+set "MSI_RC=%errorlevel%"
+if exist "%SystemRoot%\SysWOW64\msiexec.exe" (
+    "%SystemRoot%\SysWOW64\msiexec.exe" /unregister >nul 2>&1
+    "%SystemRoot%\SysWOW64\msiexec.exe" /regserver >nul 2>&1
+)
+sc config msiserver start= demand >nul 2>&1
+echo         %C_DIM%Test-starting the service...%C_RESET%
+net start msiserver >nul 2>&1
+sc query msiserver | find /i "RUNNING" >nul 2>&1
+if errorlevel 1 (
+    echo         %C_ERR%Windows Installer service still will not start - run SFC ^(menu 4^) next.%C_RESET%
+    >>"%LOG_FILE%" echo [%TIME:~0,8%] msiexec re-registered ^(rc %MSI_RC%^) but msiserver did not start
+    exit /b 1
+)
+:: it is a demand-start service - leave it idle again
+net stop msiserver /y >nul 2>&1
+echo         %C_OK%Windows Installer re-registered and starts on demand.%C_RESET%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] Windows Installer re-registered - rc %MSI_RC% - service verified
+exit /b 0
+
+:: -- D: Explorer folder view reset (views / columns / sort order not
+:: remembered, wrong template, "Apply to folders" does nothing) --
+:: All five keys are exported to the backup dir first.
+:t_folderviews
+set "FV_LS=HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell"
+set "FV_SH=HKCU\Software\Microsoft\Windows\Shell"
+set "FV_ST=HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Streams"
+echo.
+echo         %C_DIM%Backing up view settings...%C_RESET%
+set /a REG_N=0
+call :regbak "%FV_LS%\Bags"   "folderviews_ls_bags_%USERNAME%"
+call :regbak "%FV_LS%\BagMRU" "folderviews_ls_bagmru_%USERNAME%"
+call :regbak "%FV_SH%\Bags"   "folderviews_bags_%USERNAME%"
+call :regbak "%FV_SH%\BagMRU" "folderviews_bagmru_%USERNAME%"
+call :regbak "%FV_ST%"        "folderviews_streams_%USERNAME%"
+echo         %C_DIM%Stopping Explorer and clearing Bags / BagMRU / Streams...%C_RESET%
+taskkill /f /im explorer.exe >nul 2>&1
+timeout /t 2 /nobreak >nul 2>&1
+reg delete "%FV_LS%\Bags"   /f >nul 2>&1
+reg delete "%FV_LS%\BagMRU" /f >nul 2>&1
+reg delete "%FV_SH%\Bags"   /f >nul 2>&1
+reg delete "%FV_SH%\BagMRU" /f >nul 2>&1
+reg delete "%FV_ST%"        /f >nul 2>&1
+:: raise the bag limit - the default 5000 is what makes views "forget"
+reg add "%FV_SH%" /v "BagMRU Size" /t REG_DWORD /d 20000 /f >nul 2>&1
+call :rep_restart_explorer
+echo         %C_OK%Folder views reset to defaults - Explorer restarted.%C_RESET%
+echo         %C_DIM%%REG_N% backup .reg files in %REG_BAK_DIR% ^(double-click one to undo^).%C_RESET%
+if defined PROFILE_MISMATCH echo         %C_WARN%Note: reset the ADMIN profile "%USERNAME%", not "%ORIG_USER%".%C_RESET%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] Explorer folder views reset - %REG_N% keys backed up
+exit /b 0
+
+:: -- E: OneDrive reset (stuck "processing changes", icon missing,
+:: sync errors). Files are untouched; OneDrive re-scans afterwards. --
+:t_onedrive
+set "OD_EXE="
+if exist "%LocalAppData%\Microsoft\OneDrive\OneDrive.exe" set "OD_EXE=%LocalAppData%\Microsoft\OneDrive\OneDrive.exe"
+if not defined OD_EXE if exist "%ProgramFiles%\Microsoft OneDrive\OneDrive.exe" set "OD_EXE=%ProgramFiles%\Microsoft OneDrive\OneDrive.exe"
+if not defined OD_EXE if exist "%ProgramFiles(x86)%\Microsoft OneDrive\OneDrive.exe" set "OD_EXE=%ProgramFiles(x86)%\Microsoft OneDrive\OneDrive.exe"
+if not defined OD_EXE (
+    echo         %C_WARN%OneDrive is not installed for this account - nothing to reset.%C_RESET%
+    set "TASK_SKIPPED=1"
+    exit /b 0
+)
+if not exist "%OD_EXE%" (
+    echo         %C_WARN%OneDrive is not installed for this account - nothing to reset.%C_RESET%
+    set "TASK_SKIPPED=1"
+    exit /b 0
+)
+echo.
+echo         %C_DIM%Running OneDrive /reset...%C_RESET%
+"%OD_EXE%" /reset
+set "OD_RC=%errorlevel%"
+echo         %C_DIM%Waiting for OneDrive to relaunch itself ^(up to 20 s^)...%C_RESET%
+timeout /t 20 /nobreak >nul 2>&1
+tasklist /fi "imagename eq OneDrive.exe" 2>nul | find /i "OneDrive.exe" >nul 2>&1
+if errorlevel 1 (
+    echo         %C_DIM%Not running yet - starting it manually.%C_RESET%
+    start "" "%OD_EXE%" /background
+)
+>>"%LOG_FILE%" echo [%TIME:~0,8%] OneDrive reset - %OD_EXE% - exit code %OD_RC%
+echo         %C_OK%OneDrive reset - it re-scans your folders, give it a few minutes.%C_RESET%
+if defined PROFILE_MISMATCH echo         %C_WARN%Note: this reset OneDrive for the ADMIN account "%USERNAME%", not "%ORIG_USER%".%C_RESET%
 exit /b 0
 
 :: -- Repair sequence, also used by AUTO-HEAL --

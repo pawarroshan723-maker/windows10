@@ -30,7 +30,7 @@ Windows built-in (`sfc`, `dism`, `powercfg`, `reg`, `sc`, `netsh`, …).
 | `6` | **Reset Windows Update** — stops update services, moves `SoftwareDistribution`/`catroot2` to `*.old` |
 | `7` | **Service health check** — scans 23 critical services against their correct start type, repairs with per-service confirmation |
 | `8` | **Registry fixes** — EXE association, Task Manager, CMD, Regedit, Run dialog, Folder Options, USB storage, Control Panel locks |
-| `E` | **More repairs** — icon cache, font cache, Start menu / taskbar shell, re-register built-in apps, WMI repository, Windows Firewall reset (with backup), BITS queue, Search index rebuild (see below) |
+| `E` | **More repairs** — icon cache, font cache, Start menu / taskbar shell, re-register built-in apps, WMI repository, Windows Firewall reset (with backup), BITS queue, Search index rebuild, proxy reset, hosts file reset, performance counters, Windows Installer, folder views, OneDrive (see below) |
 | `9` | **Quick fixes** — printer, audio, Bluetooth, Store (WSReset), time sync, search indexer, CHKDSK, System Restore, RAM test — plus the **Troubleshooting** section (see below) |
 | `A` | **Windows tweaks** — each with Apply/Restore: Photo Viewer, extensions, hidden files, Take Ownership, shortcut arrows, Bing off, menu speed, GameDVR off, lock screen |
 | `B` | **Optimization** — drive TRIM/defrag, power plans, startup delay, Explorer restart, hibernation on/off |
@@ -40,7 +40,7 @@ Windows built-in (`sfc`, `dism`, `powercfg`, `reg`, `sc`, `netsh`, …).
 Every destructive question is a real Y/N confirmation. `N` actually cancels
 (fixed in v3.0 — in v2.9 every "No" silently fell through as "Yes").
 
-## More repairs (menu `E`, keys `1`–`8`)
+## More repairs (menu `E`, keys `1`–`9`, `A`–`E`)
 
 | Key | Problem | What it does |
 |-----|---------|--------------|
@@ -52,10 +52,18 @@ Every destructive question is a real Y/N confirmation. `N` actually cancels
 | `6` | Firewall misbehaving | Exports a `.wfw` backup to the log folder **first**, then `netsh advfirewall reset`; the undo command is printed |
 | `7` | Downloads / updates stuck | `bitsadmin /reset /allusers`, restarts BITS if needed |
 | `8` | Search index corrupt | Stops Search, deletes `Windows.edb`, flags first-time setup, restarts — re-indexing takes hours |
+| `9` | Browser works, apps/Store/Update don't | `netsh winhttp reset proxy` + clears `ProxyEnable`/`ProxyServer`/`AutoConfigURL` (Internet Settings key backed up as `.reg`) |
+| `A` | Sites redirect / Microsoft servers blocked | Backs up `hosts` to the log folder, writes the stock Windows default, flushes DNS |
+| `B` | Task Manager / Perfmon graphs empty | `lodctr /R` (System32 + SysWOW64) + `winmgmt /resyncperf` |
+| `C` | "Windows Installer service could not be accessed" (1719) | `msiexec /unregister` → `/regserver` (64 + 32-bit), verifies the service starts |
+| `D` | Folder views not remembered | Exports then deletes `Bags`/`BagMRU`/`Streams`, raises `BagMRU Size` to 20000, restarts Explorer |
+| `E` | OneDrive stuck syncing | `OneDrive.exe /reset`, relaunches if it doesn't come back (skips when not installed) |
 
 Each one is a normal confirm → run → summary task, so it appears in the
 log and the summary screen like every other repair. `4`, `5` and `8`
-set the *restart recommended* flag.
+set the *restart recommended* flag. `9`, `D` and `E` act on the profile
+the script is *running as* — if you elevated with a different admin
+account, the PROFILE_MISMATCH warning tells you.
 
 ### Adding your own repair
 
@@ -183,8 +191,10 @@ cleanup_advanced.bat -auto
 
 - **v3.3** (2026-09-22) — More repairs (menu `E`): icon cache, font
   cache, Start menu shell, app re-registration, WMI repository, firewall
-  reset with backup, BITS queue reset, Search index rebuild. README now
-  documents how to add a repair.
+  reset with backup, BITS queue reset, Search index rebuild, proxy
+  reset, hosts file reset, performance counter rebuild, Windows
+  Installer re-register, Explorer folder view reset, OneDrive reset.
+  README now documents how to add a repair.
 - **v3.2.4** (2026-09-19) — Hardening: the summary
   screen's auto-mode exit moved to its own label, so a manual
   run can never be killed from that screen (protects against
