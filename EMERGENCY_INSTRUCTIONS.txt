@@ -1,0 +1,83 @@
+==============================================
+ EMERGENCY - EXE FILES NOT OPENING - HOW TO RUN FIX
+==============================================
+
+If double-clicking .exe does NOTHING, .bat and .cmd still usually work.
+Try these in order:
+
+------------------------------------------------
+OPTION 1: Run fix_exe.bat directly
+------------------------------------------------
+1. Right-click fix_exe.bat -> Run as administrator
+2. If that doesn't open, try OPTION 2
+
+------------------------------------------------
+OPTION 2: Use Task Manager
+------------------------------------------------
+1. Press Ctrl+Shift+Esc to open Task Manager
+   If that fails: Ctrl+Alt+Del -> Task Manager
+2. Click File -> Run new task
+3. Check "Create this task with administrative privileges"
+4. Type: cmd
+5. In cmd window, navigate to this folder:
+   cd /d "%USERPROFILE%\Desktop"
+   or
+   cd /d "C:\path\to\windows10 folder"
+6. Run: fix_exe.bat
+   Or: fix_exe.reg (then type: reg import fix_exe.reg)
+
+------------------------------------------------
+OPTION 3: Use Run dialog (Win+R)
+------------------------------------------------
+1. Press Win+R
+2. Type: cmd  (check admin if possible)
+3. Then cd to folder and run fix_exe.bat
+
+------------------------------------------------
+OPTION 4: PowerShell from Task Manager
+------------------------------------------------
+1. Task Manager -> File -> Run new task
+2. Type: powershell  (check admin)
+3. Type:
+   Set-ExecutionPolicy Bypass -Scope Process -Force
+   cd C:\path\to\folder
+   .\fix_exe.ps1
+
+------------------------------------------------
+OPTION 5: Command Prompt via Safe Mode
+------------------------------------------------
+1. Hold Shift + click Restart (Start menu -> Power -> Restart while holding Shift)
+2. Troubleshoot -> Advanced options -> Startup Settings -> Restart
+3. Press 6 for Safe Mode with Command Prompt
+4. Login, then run fix_exe.bat
+
+------------------------------------------------
+OPTION 6: Manual reg import if nothing works
+------------------------------------------------
+If you can open Notepad (notepad.exe might also be blocked, but try):
+1. Task Manager -> File -> Run new task -> notepad
+2. Paste content of fix_exe.reg
+3. Save as C:\fix.reg (All Files)
+4. Task Manager -> File -> Run new task -> cmd (admin)
+5. Run: reg import C:\fix.reg
+6. Then: taskkill /f /im explorer.exe & start explorer.exe
+
+------------------------------------------------
+OPTION 7: If CMD and Regedit are ALSO blocked
+------------------------------------------------
+Your system likely has policy blocks (malware).
+1. Download fix from another PC onto USB
+2. Boot Windows in Safe Mode with Command Prompt
+3. Run cleanup_advanced.bat -> Registry fixes -> [1] EXE, [2] TaskMgr, [3] CMD, [4] Regedit
+4. After unblocking, run fix_exe.bat
+
+------------------------------------------------
+AFTER FIX:
+------------------------------------------------
+- Restart PC
+- Try opening any .exe
+- If still fails: run sfc /scannow and DISM /Online /Cleanup-Image /RestoreHealth
+- Full antivirus scan
+- Check IFEO hijacks: reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options" /s /f Debugger
+
+Log saved to Desktop\exe_fix_log.txt

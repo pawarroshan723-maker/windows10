@@ -2125,19 +2125,52 @@ exit /b 0
 :: Each checks whether the policy value exists first. If it was never
 :: set, the task reports SKIP ("already fine") instead of claiming OK.
 
-:: -- EXE association repair (classic "no program opens" damage) --
+:: -- EXE association repair (classic "no program opens" damage) - FULL VERSION v3.0 --
 :r_exe
 echo.
-echo         %C_DIM%Restoring exefile class and .exe association...%C_RESET%
+echo         %C_DIM%Restoring exefile class and .exe association - FULL REPAIR...%C_RESET%
+:: Step 1: Remove user overrides that hijack .exe
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.exe" /f >nul 2>&1
+reg delete "HKCU\Software\Classes\.exe" /f >nul 2>&1
+reg delete "HKCU\Software\Classes\exefile" /f >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.exe\UserChoice" /f >nul 2>&1
+echo         %C_DIM%  - user overrides cleared%C_RESET%
+:: Step 2: Restore core assoc + ftype
 ftype exefile="%%1" %%* >nul 2>&1
 assoc .exe=exefile >nul 2>&1
-reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.exe\UserChoice" /f >nul 2>&1
-:: HKLM side + a classic hijack location (user-level class override)
-reg add "HKLM\SOFTWARE\Classes\exefile" /ve /d "Application" /f >nul 2>&1
-reg delete "HKCU\Software\Classes\.exe" /f >nul 2>&1
-echo         %C_OK%EXE association restored - try opening a program now.%C_RESET%
-echo         %C_DIM%Still broken? Sign out and back in, then scan for malware.%C_RESET%
->>"%LOG_FILE%" echo [%TIME:~0,8%] EXE association repaired
+:: Step 3: Restore HKCR\.exe keys
+reg add "HKCR\.exe" /ve /d "exefile" /f >nul 2>&1
+reg add "HKCR\.exe" /v "Content Type" /d "application/x-msdownload" /f >nul 2>&1
+reg add "HKCR\.exe\PersistentHandler" /ve /d "{098f2470-bae0-11cd-b579-08002b30bfeb}" /f >nul 2>&1
+reg add "HKLM\SOFTWARE\Classes\.exe" /ve /d "exefile" /f >nul 2>&1
+reg add "HKLM\SOFTWARE\Classes\.exe" /v "Content Type" /d "application/x-msdownload" /f >nul 2>&1
+:: Step 4: Restore exefile open command
+reg add "HKCR\exefile" /ve /d "Application" /f >nul 2>&1
+reg add "HKCR\exefile\DefaultIcon" /ve /d "%%1" /f >nul 2>&1
+reg add "HKCR\exefile\shell\open\command" /ve /d "\"%%1\" %%*" /f >nul 2>&1
+reg add "HKCR\exefile\shell\open\command" /v "IsolatedCommand" /d "\"%%1\" %%*" /f >nul 2>&1
+reg add "HKLM\SOFTWARE\Classes\exefile\shell\open\command" /ve /d "\"%%1\" %%*" /f >nul 2>&1
+reg add "HKLM\SOFTWARE\Classes\exefile\shell\open\command" /v "IsolatedCommand" /d "\"%%1\" %%*" /f >nul 2>&1
+echo         %C_DIM%  - HKCR\.exe and exefile restored%C_RESET%
+:: Step 5: Check IFEO hijacks
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options" /s /f "Debugger" 2>nul | find /i "Debugger" >nul 2>&1
+if not errorlevel 1 (
+    echo         %C_WARN%  WARNING: IFEO Debugger hijacks FOUND - malware may be blocking exe%C_RESET%
+    echo         %C_DIM%  Run fix_exe.bat for automatic removal, or check manually:%C_RESET%
+    echo         %C_DIM%  reg query HKLM\...\Image File Execution Options /s /f Debugger%C_RESET%
+    >>"%LOG_FILE%" echo [%TIME:~0,8%] IFEO Debugger hijack detected
+) else (
+    echo         %C_DIM%  - No IFEO hijacks found%C_RESET%
+)
+:: Step 6: Check DisallowRun
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" /v DisallowRun >nul 2>&1
+if not errorlevel 1 (
+    reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" /v DisallowRun /f >nul 2>&1
+    echo         %C_WARN%  Removed DisallowRun policy%C_RESET%
+)
+echo         %C_OK%EXE association fully restored - try opening a program now.%C_RESET%
+echo         %C_DIM%If still broken: restart Explorer, sign out/in, scan malware, run sfc /scannow%C_RESET%
+>>"%LOG_FILE%" echo [%TIME:~0,8%] EXE association repaired - full restore v3.0
 exit /b 0
 
 :: -- shared policy-value cleaner: %1=key %2=value name --

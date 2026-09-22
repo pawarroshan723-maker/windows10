@@ -178,3 +178,25 @@ This tool modifies system state (services, registry, caches, power
 configuration). Use at your own risk — the restore point and registry
 backups are a safety net, not a guarantee. No license is included in this
 repository; all rights reserved.
+
+---
+
+## 🚨 EXE Files Not Opening? FIX ADDED (v3.0)
+
+This branch now includes comprehensive EXE fix (same as main fix):
+
+- `fix_exe.bat` - One-click full repair (recommended, run as admin)
+- `fix_exe.reg` - Registry file import
+- `fix_exe.ps1` - PowerShell version
+- `fix_exe.vbs` - VBScript fallback
+- `EMERGENCY_INSTRUCTIONS.txt` - How to run when exe blocked
+
+**Quick fix:**
+1. Right-click `fix_exe.bat` → Run as administrator
+2. Restart PC
+3. If still broken: `sfc /scannow` + `DISM /Online /Cleanup-Image /RestoreHealth` + antivirus full scan
+
+Also `cleanup_advanced.bat` → `[8] Registry fixes` → `[1] EXE association` now does FULL restore (v3.0): clears UserChoice, restores HKCR\.exe, PersistentHandler, exefile open command, checks IFEO hijacks.
+
+See main README for full guide or check `fix_exe.bat` source.
+
