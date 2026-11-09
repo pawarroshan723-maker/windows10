@@ -91,8 +91,8 @@ for /f "tokens=*" %%a in ('reg query "HKLM\SOFTWARE\Microsoft\Windows NT\Current
 if "%IFEO_FOUND%"=="1" (
     echo.
     echo   WARNING: Debugger hijacks found! This often causes exe not to open.
-    echo   Do you want to REMOVE all Debugger values under IFEO? (Removes hijacks)
-    echo   This will NOT delete legitimate entries, only the Debugger value.
+    echo   Do you want to REMOVE all Debugger values under IFEO? ^(Removes hijacks^)
+    echo   WARNING: legitimate debugger and security entries can also be removed.
     choice /c YN /n /m "   Remove all IFEO Debugger hijacks? [Y/N]: "
     if errorlevel 2 goto skip_ifeo
     echo   Removing Debugger values...

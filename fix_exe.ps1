@@ -24,38 +24,55 @@ if (-not (Test-Admin)) {
     exit 1
 }
 
-Write-Host "[1/5] Removing user overrides..." -ForegroundColor Yellow
-Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.exe" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "HKCU:\Software\Classes\.exe" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "HKCU:\Software\Classes\exefile" -Recurse -Force -ErrorAction SilentlyContinue
-Write-Host "  OK - user overrides cleared" -ForegroundColor Green
+# Registry changes can fail independently. Stop on the first unexpected failure
+# and do not announce success for a partially applied repair.
+try {
+    Write-Host "[1/5] Removing user overrides..." -ForegroundColor Yellow
+    $overrides = @(
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.exe",
+        "HKCU:\Software\Classes\.exe",
+        "HKCU:\Software\Classes\exefile"
+    )
+    foreach ($path in $overrides) {
+        if (Test-Path -LiteralPath $path -ErrorAction Stop) {
+            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+        }
+    }
+    Write-Host "  OK - user overrides cleared" -ForegroundColor Green
 
-Write-Host "[2/5] Restoring core association..." -ForegroundColor Yellow
-cmd /c "assoc .exe=exefile" | Out-Null
-cmd /c 'ftype exefile="%1" %*' | Out-Null
+    Write-Host "[2/5] Restoring core association..." -ForegroundColor Yellow
+    cmd /c "assoc .exe=exefile" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "assoc failed with exit code $LASTEXITCODE" }
+    cmd /c 'ftype exefile="%1" %*' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "ftype failed with exit code $LASTEXITCODE" }
 
-# Ensure HKCR\.exe
-New-Item -Path "HKCR:\.exe" -Force | Out-Null
-Set-ItemProperty -Path "HKCR:\.exe" -Name "(default)" -Value "exefile" -Force
-Set-ItemProperty -Path "HKCR:\.exe" -Name "Content Type" -Value "application/x-msdownload" -Force
+    # Use a provider-qualified path: HKCR: is not a default PowerShell drive.
+    $classesRoot = "Registry::HKEY_CLASSES_ROOT"
+    New-Item -Path "$classesRoot\.exe" -Force -ErrorAction Stop | Out-Null
+    Set-ItemProperty -Path "$classesRoot\.exe" -Name "(default)" -Value "exefile" -Force -ErrorAction Stop
+    Set-ItemProperty -Path "$classesRoot\.exe" -Name "Content Type" -Value "application/x-msdownload" -Force -ErrorAction Stop
 
-New-Item -Path "HKCR:\.exe\PersistentHandler" -Force | Out-Null
-Set-ItemProperty -Path "HKCR:\.exe\PersistentHandler" -Name "(default)" -Value "{098f2470-bae0-11cd-b579-08002b30bfeb}" -Force
+    New-Item -Path "$classesRoot\.exe\PersistentHandler" -Force -ErrorAction Stop | Out-Null
+    Set-ItemProperty -Path "$classesRoot\.exe\PersistentHandler" -Name "(default)" -Value "{098f2470-bae0-11cd-b579-08002b30bfeb}" -Force -ErrorAction Stop
 
-New-Item -Path "HKCR:\exefile\shell\open\command" -Force | Out-Null
-Set-ItemProperty -Path "HKCR:\exefile" -Name "(default)" -Value "Application" -Force
-Set-ItemProperty -Path "HKCR:\exefile\DefaultIcon" -Name "(default)" -Value "%1" -Force
-Set-ItemProperty -Path "HKCR:\exefile\shell\open\command" -Name "(default)" -Value '"%1" %*' -Force
-Set-ItemProperty -Path "HKCR:\exefile\shell\open\command" -Name "IsolatedCommand" -Value '"%1" %*' -Force
+    New-Item -Path "$classesRoot\exefile\DefaultIcon" -Force -ErrorAction Stop | Out-Null
+    New-Item -Path "$classesRoot\exefile\shell\open\command" -Force -ErrorAction Stop | Out-Null
+    Set-ItemProperty -Path "$classesRoot\exefile" -Name "(default)" -Value "Application" -Force -ErrorAction Stop
+    Set-ItemProperty -Path "$classesRoot\exefile\DefaultIcon" -Name "(default)" -Value "%1" -Force -ErrorAction Stop
+    Set-ItemProperty -Path "$classesRoot\exefile\shell\open\command" -Name "(default)" -Value '"%1" %*' -Force -ErrorAction Stop
+    Set-ItemProperty -Path "$classesRoot\exefile\shell\open\command" -Name "IsolatedCommand" -Value '"%1" %*' -Force -ErrorAction Stop
 
-# HKLM copy
-New-Item -Path "HKLM:\SOFTWARE\Classes\.exe\PersistentHandler" -Force | Out-Null
-Set-ItemProperty -Path "HKLM:\SOFTWARE\Classes\.exe" -Name "(default)" -Value "exefile" -Force
-Set-ItemProperty -Path "HKLM:\SOFTWARE\Classes\.exe" -Name "Content Type" -Value "application/x-msdownload" -Force
-New-Item -Path "HKLM:\SOFTWARE\Classes\exefile\shell\open\command" -Force | Out-Null
-Set-ItemProperty -Path "HKLM:\SOFTWARE\Classes\exefile\shell\open\command" -Name "(default)" -Value '"%1" %*' -Force
-
-Write-Host "  OK - core association restored" -ForegroundColor Green
+    # HKLM copy
+    New-Item -Path "HKLM:\SOFTWARE\Classes\.exe\PersistentHandler" -Force -ErrorAction Stop | Out-Null
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Classes\.exe" -Name "(default)" -Value "exefile" -Force -ErrorAction Stop
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Classes\.exe" -Name "Content Type" -Value "application/x-msdownload" -Force -ErrorAction Stop
+    New-Item -Path "HKLM:\SOFTWARE\Classes\exefile\shell\open\command" -Force -ErrorAction Stop | Out-Null
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Classes\exefile\shell\open\command" -Name "(default)" -Value '"%1" %*' -Force -ErrorAction Stop
+} catch {
+    Write-Host "  EXE association repair failed; changes may be partial: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
+Write-Host "  Core association commands completed. Verify EXE launch in the affected user profile." -ForegroundColor Green
 
 Write-Host "[3/5] Checking IFEO Debugger hijacks..." -ForegroundColor Yellow
 $ifeoPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options"
