@@ -3,10 +3,17 @@ setlocal EnableExtensions
 title Advanced System Care - Windows 10 / 11
 
 :: ================================================================
-::  ADVANCED SYSTEM CARE  v3.2.4
+::  ADVANCED SYSTEM CARE  v3.2.7
 ::  (Cleanup + Repair + Services + Registry + QuickFix + Tweaks
 ::   + ONE-CLICK REPAIR ALL)
 :: ---------------------------------------------------------------
+::  v3.2.7 (2026-11-09):
+::   * Defender real-time protection status and confirmed on/off controls.
+::  v3.2.6 (2026-11-09):
+::   * Fix profile warning, Store/time failure reporting and display reset codes.
+::  v3.2.5 (2026-11-09):
+::   * Menu routing and cancellation hardened; summary returns to submenu.
+::   * New SYSTEM Auto-Care scheduling disabled; existing tasks can be removed.
 ::  v3.0 CHANGES (audit fixes, 2026-09-19):
 ::   * FIXED   Y/N confirmations always returned "Yes" (an echo
 ::             between choice and exit reset the errorlevel)
@@ -121,7 +128,7 @@ net session >nul 2>&1
 if %errorlevel% neq 0 (
     echo.
     echo   Requesting Administrator privileges - please accept the UAC prompt...
-    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList '-vt -orig=%USERNAME%%ASC_EXTRA%' -Verb RunAs } catch { exit 1 }" >nul 2>&1
+    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList ('-vt ' + [char]34 + '-orig=%USERNAME%' + [char]34 + '%ASC_EXTRA%') -Verb RunAs } catch { exit 1 }" >nul 2>&1
     if errorlevel 1 (
         echo.
         echo   Elevation was cancelled - Administrator rights are REQUIRED.
@@ -139,7 +146,7 @@ if %errorlevel% neq 0 (
 reg query "HKCU\Console" /v VirtualTerminalLevel 2>nul | find "0x1" >nul 2>&1
 if errorlevel 1 reg add "HKCU\Console" /v VirtualTerminalLevel /t REG_DWORD /d 1 /f >nul 2>&1
 if /i not "%~1"=="-vt" if not defined AUTO_MODE (
-    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList '-vt -orig=%USERNAME%%ASC_EXTRA%' -Verb RunAs } catch { exit 1 }" >nul 2>&1
+    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList ('-vt ' + [char]34 + '-orig=%USERNAME%' + [char]34 + '%ASC_EXTRA%') -Verb RunAs } catch { exit 1 }" >nul 2>&1
     if not errorlevel 1 exit /b
     echo.
     echo   Could not relaunch for color support - continuing without it.
@@ -212,13 +219,11 @@ if defined PREV_DISM_FAIL >>"%LOG_FILE%" echo  NOTE: previous session had a DISM
 :: relaunch as the -orig= argument (see sections 1 and 1b).
 set "PROFILE_MISMATCH="
 set "ORIG_USER=%~2"
-if defined ORIG_USER set "ORIG_CHECK=%ORIG_USER:-orig=%"
-if defined ORIG_CHECK if not "%ORIG_CHECK%"=="%ORIG_USER%" (
-    set "ORIG_USER=%ORIG_CHECK%"
-    if /i not "%ORIG_USER%"=="%USERNAME%" (
-        set "PROFILE_MISMATCH=1"
-        >>"%LOG_FILE%" echo  NOTE: started by "%ORIG_USER%" but running as admin "%USERNAME%" - user tweaks affect the ADMIN profile.
-    )
+if /i not "%ORIG_USER:~0,6%"=="-orig=" set "ORIG_USER="
+if defined ORIG_USER set "ORIG_USER=%ORIG_USER:~6%"
+if defined ORIG_USER if /i not "%ORIG_USER%"=="%USERNAME%" (
+    set "PROFILE_MISMATCH=1"
+    >>"%LOG_FILE%" echo  NOTE: started by "%ORIG_USER%" but running as admin "%USERNAME%" - user tweaks affect the ADMIN profile.
 )
 
 :: ---------- 3f. Safety: restore point + registry backup ----------
@@ -261,10 +266,11 @@ for /f %%a in ('powershell -NoProfile -Command "(Get-CimInstance -Namespace root
 :: ---------- 4. Main menu ----------
 if defined AUTO_MODE goto RUN_AUTO
 :MENU
+set "SUMMARY_RETURN=MENU"
 cls
 echo.
 echo  %C_H%==================================================================
-echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.2.4%C_H%
+echo  %C_H%            ADVANCED SYSTEM CARE  %C_DIM%-  v3.2.7%C_H%
 echo  %C_H%==================================================================%C_RESET%
 echo.
 echo    %C_OK%[R]%C_RESET% %C_HEAL%ONE-CLICK REPAIR ALL%C_RESET%  %C_DIM%- full automatic maintenance (30-90 min)%C_RESET%
@@ -288,7 +294,7 @@ echo    %C_HEAL%[B]%C_RESET% %C_OK%Optimization tools%C_RESET%  %C_DIM%- drives,
 echo.
 echo    %C_DIM%-- TOOLS ------------------------------------------------------%C_RESET%
 echo    %C_HEAL%[C]%C_RESET% %C_INFO%Disk space overview%C_RESET%
-echo    %C_HEAL%[D]%C_RESET% %C_INFO%Auto-Care scheduler%C_RESET% %C_DIM%- weekly unattended maintenance%C_RESET%
+echo    %C_HEAL%[D]%C_RESET% %C_INFO%Auto-Care scheduler%C_RESET% %C_DIM%- status / remove; new scheduling disabled%C_RESET%
 echo    %C_HEAL%[0]%C_RESET% %C_INFO%Exit%C_RESET%
 echo.
 if defined REBOOT_PENDING (
@@ -327,10 +333,13 @@ if errorlevel 4 goto RUN_SFCSUITE
 if errorlevel 3 goto RUN_DEEP
 if errorlevel 2 goto RUN_FULL
 if errorlevel 1 goto RUN_QUICK
+goto MENU
 
 
 :: ---------- 5. Cleanup run definitions ----------
 :RUN_QUICK
+call :confirm "Run QUICK cleanup? This removes temp files for all profiles, empties the recycle bin, and clears recent history."
+if errorlevel 2 goto MENU
 set "TASK_TOTAL=6"
 call :start_run "QUICK"
 call :task "User Temp files - all profiles"    :t_user_temp
@@ -342,6 +351,8 @@ call :task "DNS cache flush"                   :t_dns
 goto SUMMARY
 
 :RUN_FULL
+call :confirm "Run FULL cleanup? This includes all-profile temp files, recent history, and crash dumps."
+if errorlevel 2 goto MENU
 set "TASK_TOTAL=10"
 call :start_run "FULL"
 call :task "User Temp files - all profiles"    :t_user_temp
@@ -361,6 +372,8 @@ goto SUMMARY
 :: NOTE: Prefetch is NOT wiped by default (see :t_prefetch) - clearing
 :: it saves a few MB but slows first app launches for a while.
 :RUN_DEEP
+call :confirm "Run DEEP cleanup? This includes all-profile temp files, recent history, crash dumps, and DISM."
+if errorlevel 2 goto MENU
 set "TASK_TOTAL=12"
 call :start_run "DEEP"
 call :task "Component store cleanup - DISM"    :t_dism
@@ -425,15 +438,17 @@ if not defined AUTO_MODE (
 )
 set "RUN_LABEL_PRE=REPAIR ALL"
 call :pipeline_all
+goto SUMMARY
 
 :: -- unattended entry: scheduled auto-care task or 'cleanup_advanced.bat -auto' --
 :RUN_AUTO
 set "RUN_LABEL_PRE=AUTO CARE (unattended)"
 call :pipeline_all
+goto SUMMARY
 
 :pipeline_all
 set "TASK_TOTAL=13"
-call :start_run %RUN_LABEL_PRE%
+call :start_run "%RUN_LABEL_PRE%"
 echo.
 echo    %C_HEAL%*** PHASE 1/4 - SERVICE HEALTH CHECK + AUTO-FIX ***%C_RESET%
 call :svc_scanall
@@ -466,7 +481,7 @@ call :task "System File Checker - sfc /scannow"         :t_sfc
 echo.
 echo    %C_HEAL%*** PHASE 4/4 - DRIVE OPTIMIZATION ***%C_RESET%
 call :task "Drive optimization - TRIM / defrag"         :t_defrag
-goto SUMMARY
+exit /b 0
 
 
 :: ---------- 5c. SERVICE HEALTH CHECK ----------
@@ -642,6 +657,7 @@ exit /b 0
 
 :: ---------- 5d. REGISTRY FIXES (classic regedit damage) ----------
 :REGMENU
+set "SUMMARY_RETURN=REGMENU"
 cls
 echo.
 echo  %C_H%------------------------------------------------------------------
@@ -658,7 +674,7 @@ echo    %C_OK%[7]%C_RESET% %C_INFO%USB storage blocked%C_RESET%         %C_DIM%-
 echo    %C_OK%[8]%C_RESET% %C_INFO%Control Panel blocked%C_RESET%       %C_DIM%- remove NoControlPanel lock%C_RESET%
 echo    %C_OK%[0]%C_RESET% %C_INFO%Back to main menu%C_RESET%
 echo.
-echo   %C_DIM%Fixes remove policy values only - they never delete your data.%C_RESET%
+echo   %C_WARN%Fixes can change policies and EXE associations. Review backups first.%C_RESET%
 echo   %C_DIM%If a policy comes back after a reboot, scan for malware.%C_RESET%
 echo.
 choice /c 123456780 /n /m "  Choose a fix [1-8, 0=Back]: "
@@ -671,6 +687,7 @@ if errorlevel 4 goto REG_REGEDIT
 if errorlevel 3 goto REG_CMD
 if errorlevel 2 goto REG_TASKMGR
 if errorlevel 1 goto REG_EXE
+goto REGMENU
 
 :REG_EXE
 cls
@@ -783,6 +800,7 @@ if errorlevel 4 goto TWK_4
 if errorlevel 3 goto TWK_3
 if errorlevel 2 goto TWK_2
 if errorlevel 1 goto TWK_1
+goto TWKMENU
 
 :: -- shared: ask Apply or Restore, then run the tweak sub --
 :tw_ask
@@ -791,8 +809,10 @@ choice /c ar0 /n /m "   [A]=Apply tweak   [R]=Restore default   [0]=Cancel: "
 if errorlevel 3 goto :eof
 if errorlevel 2 (
     call %~1 R
-) else (
+) else if errorlevel 1 (
     call %~1 A
+) else (
+    goto :eof
 )
 echo.
 echo   %C_DIM%Press any key to return...%C_RESET%
@@ -997,10 +1017,11 @@ exit /b 0
 
 :: ---------- 5f. QUICK FIXES submenu (common Win10 problems) ----------
 :FIXMENU
+set "SUMMARY_RETURN=FIXMENU"
 cls
 echo.
 echo  %C_H%------------------------------------------------------------------
-echo  %C_H%        QUICK FIXES for common problems  %C_DIM%v3.2.4%C_H%
+echo  %C_H%        QUICK FIXES for common problems  %C_DIM%v3.2.7%C_H%
 echo  %C_H%------------------------------------------------------------------%C_RESET%
 echo.
 echo    %C_OK%[1]%C_RESET% %C_INFO%Printer not printing%C_RESET%    %C_DIM%- clear stuck queue + restart spooler%C_RESET%
@@ -1023,10 +1044,12 @@ echo    %C_OK%[F]%C_RESET% %C_INFO%What is using CPU / RAM%C_RESET%  %C_DIM%- to
 echo    %C_OK%[G]%C_RESET% %C_INFO%Battery drains fast%C_RESET%      %C_DIM%- battery report + wake sources%C_RESET%
 echo    %C_OK%[H]%C_RESET% %C_INFO%Check Windows license%C_RESET%    %C_DIM%- activation status%C_RESET%
 echo    %C_OK%[I]%C_RESET% %C_INFO%Keyboard acts weird%C_RESET%      %C_DIM%- reset Filter / Sticky keys%C_RESET%
+echo    %C_OK%[J]%C_RESET% %C_INFO%Microsoft Defender%C_RESET%       %C_DIM%- real-time protection status / on / off%C_RESET%
 echo    %C_OK%[0]%C_RESET% %C_INFO%Back to main menu%C_RESET%
 echo.
-choice /c 123456789ABCDEFGHI0 /n /m "  Choose a fix [1-9, A-I, 0=Back]: "
-if errorlevel 19 goto MENU
+choice /c 123456789ABCDEFGHIJ0 /n /m "  Choose a fix [1-9, A-J, 0=Back]: "
+if errorlevel 20 goto MENU
+if errorlevel 19 goto FIX_DEFENDER
 if errorlevel 18 goto FIX_FILTERKEYS
 if errorlevel 17 goto FIX_LICENSE
 if errorlevel 16 goto FIX_BATT
@@ -1045,6 +1068,7 @@ if errorlevel 4 goto FIX_STORE
 if errorlevel 3 goto FIX_BT
 if errorlevel 2 goto FIX_AUDIO
 if errorlevel 1 goto FIX_PRINTER
+goto FIXMENU
 
 :FIX_PRINTER
 cls
@@ -1130,9 +1154,18 @@ netsh interface ip show config
 echo.
 choice /c 1230 /n /m "  [1]=Set public DNS 8.8.8.8+1.1.1.1   [2]=Reset DNS to automatic   [3]=Flush DNS cache   [0]=Cancel: "
 if errorlevel 4 goto FIXMENU
-if errorlevel 3 call :dns_flush
-if errorlevel 2 call :dns_auto
-call :dns_public
+if errorlevel 3 (
+    call :dns_flush
+    goto FIXMENU
+)
+if errorlevel 2 (
+    call :dns_auto
+    goto FIXMENU
+)
+if errorlevel 1 (
+    call :dns_public
+    goto FIXMENU
+)
 goto FIXMENU
 
 :: -- find the default route's adapter name --
@@ -1148,6 +1181,8 @@ if not defined DNS_IFACE (
     pause >nul
     goto :eof
 )
+call :confirm "Replace IPv4 DNS on %DNS_IFACE% with public servers 8.8.8.8 and 1.1.1.1? Existing static DNS settings will be lost."
+if errorlevel 2 goto :eof
 echo   %C_DIM%Setting public DNS on "%DNS_IFACE%"...%C_RESET%
 netsh interface ip set dns "%DNS_IFACE%" static 8.8.8.8
 netsh interface ip add dns "%DNS_IFACE%" 1.1.1.1 index=2
@@ -1170,6 +1205,8 @@ if not defined DNS_IFACE (
     pause >nul
     goto :eof
 )
+call :confirm "Set IPv4 DNS on %DNS_IFACE% to automatic? This does not restore previous static DNS settings."
+if errorlevel 2 goto :eof
 netsh interface ip set dns "%DNS_IFACE%" dhcp
 ipconfig /flushdns >nul 2>&1
 echo   %C_OK%DNS back to automatic ^(router / ISP values^).%C_RESET%
@@ -1196,11 +1233,19 @@ powershell -NoProfile -Command "Get-NetAdapter | Format-Table Name, Status, Link
 echo.
 choice /c 120 /n /m "  [1]=Enable all DISABLED adapters   [2]=Restart wireless adapter   [0]=Cancel: "
 if errorlevel 3 goto FIXMENU
-if errorlevel 2 call :net_wireless
-call :net_enable
+if errorlevel 2 (
+    call :net_wireless
+    goto FIXMENU
+)
+if errorlevel 1 (
+    call :net_enable
+    goto FIXMENU
+)
 goto FIXMENU
 
 :net_enable
+call :confirm "Enable ALL disabled adapters, including virtual and intentionally disabled adapters?"
+if errorlevel 2 goto :eof
 powershell -NoProfile -Command "Get-NetAdapter | Where-Object { $_.Status -eq 'Disabled' } | ForEach-Object { Write-Output ('   Enabling ' + $_.Name); Enable-NetAdapter -Name $_.Name -Confirm:$false }"
 echo.
 echo   %C_DIM%Reconnect/replug the device if it is external.%C_RESET%
@@ -1239,14 +1284,14 @@ goto FIXMENU
 :FIX_CRASH
 cls
 echo.
-echo   %C_INFO%Bug check events, last 30 days:^C_RESET%
+echo   %C_INFO%Bug check events, last 30 days:%C_RESET%
 echo.
 powershell -NoProfile -Command "Get-WinEvent -FilterHashtable @{LogName='System';Id=1001;StartTime=(Get-Date).AddDays(-30)} -MaxEvents 5 -ErrorAction SilentlyContinue | ForEach-Object { $_.TimeCreated.ToString('yyyy-MM-dd HH:mm') + '  ' + $_.Message.Trim().Substring(0,[Math]::Min(140,$_.Message.Trim().Length)) }"
 echo.
-echo   %C_INFO%Unclean shutdowns in the last 30 days ^C_RESET%
+echo   %C_INFO%Unclean shutdowns in the last 30 days %C_RESET%
 powershell -NoProfile -Command "(Get-WinEvent -FilterHashtable @{LogName='System';Id=41;StartTime=(Get-Date).AddDays(-30)} -ErrorAction SilentlyContinue | Measure-Object).Count"
 echo.
-echo   %C_INFO%Memory dumps on disk:^C_RESET%
+echo   %C_INFO%Memory dumps on disk:%C_RESET%
 if exist "%SystemRoot%\Minidump\*.dmp" (
     dir /o-d "%SystemRoot%\Minidump\*.dmp"
 ) else (
@@ -1287,11 +1332,11 @@ goto FIXMENU
 :FIX_PROCS
 cls
 echo.
-echo   %C_INFO%Top 10 processes by CPU time:^C_RESET%
+echo   %C_INFO%Top 10 processes by CPU time:%C_RESET%
 echo.
 powershell -NoProfile -Command "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 ProcessName, @{n='CPU_s';e={[int]$_.CPU}}, @{n='Mem_MB';e={[int]($_.WorkingSet64/1MB)}} | Format-Table -AutoSize"
 echo.
-echo   %C_INFO%Top 5 by memory:^C_RESET%
+echo   %C_INFO%Top 5 by memory:%C_RESET%
 powershell -NoProfile -Command "Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 ProcessName, @{n='Mem_MB';e={[int]($_.WorkingSet64/1MB)}} | Format-Table -AutoSize"
 echo.
 echo   %C_DIM%CPU_s = seconds of CPU used since the process started.%C_RESET%
@@ -1356,6 +1401,53 @@ call :start_run "KEYBOARD FILTER KEYS"
 call :task "Reset Filter/Sticky/Toggle keys" :t_filterkeys
 goto SUMMARY
 
+:: -- J: Microsoft Defender real-time protection --
+:: Uses supported Defender cmdlets only; does not change Defender services,
+:: policy, exclusions, tamper protection, or other antivirus products.
+:FIX_DEFENDER
+cls
+echo.
+echo  %C_H%Microsoft Defender - real-time protection%C_RESET%
+echo.
+echo   %C_DIM%Current Defender status ^(availability varies by Windows edition^):%C_RESET%
+powershell -NoProfile -Command "try { $s=Get-MpComputerStatus -ErrorAction Stop; $s | Format-List AMRunningMode,AntivirusEnabled,RealTimeProtectionEnabled,IsTamperProtected } catch { Write-Host ('   Status unavailable: ' + $_.Exception.Message); exit 1 }"
+if errorlevel 1 echo   %C_WARN%Defender status could not be read. Changes may not be available.%C_RESET%
+echo.
+echo   %C_WARN%Turning protection off increases malware risk. Turn it back on after use.%C_RESET%
+echo   %C_WARN%No automatic re-enable is scheduled by this tool.%C_RESET%
+echo   %C_DIM%Tamper protection, policy, or another antivirus may block changes.%C_RESET%
+echo   %C_DIM%This controls real-time protection only, not the entire Defender product.%C_RESET%
+echo.
+choice /c 120 /n /m "  [1]=Enable real-time protection  [2]=Disable  [0]=Back: "
+if errorlevel 3 goto FIXMENU
+if errorlevel 2 goto DEFENDER_DISABLE
+if errorlevel 1 goto DEFENDER_ENABLE
+goto FIXMENU
+
+:DEFENDER_ENABLE
+call :confirm "Enable Microsoft Defender real-time protection?"
+if errorlevel 2 goto FIX_DEFENDER
+set "TASK_TOTAL=1"
+call :start_run "DEFENDER REAL-TIME PROTECTION"
+call :task "Enable Defender real-time protection" :t_defender_on
+goto SUMMARY
+
+:DEFENDER_DISABLE
+call :confirm "Turn OFF Defender real-time protection? Your PC is more vulnerable. This tool will NOT schedule re-enabling it."
+if errorlevel 2 goto FIX_DEFENDER
+set "TASK_TOTAL=1"
+call :start_run "DEFENDER REAL-TIME PROTECTION"
+call :task "Disable Defender real-time protection" :t_defender_off
+goto SUMMARY
+
+:t_defender_on
+powershell -NoProfile -Command "try { Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction Stop; $s=Get-MpComputerStatus -ErrorAction Stop; if ($s.RealTimeProtectionEnabled -ne $true) { throw 'Defender did not report real-time protection enabled. Check Windows Security, policy, tamper protection, or another antivirus.' }; Write-Host 'Defender reports real-time protection enabled.'; exit 0 } catch { Write-Host ('Unable to enable real-time protection: ' + $_.Exception.Message); exit 1 }"
+exit /b %errorlevel%
+
+:t_defender_off
+powershell -NoProfile -Command "try { $s=Get-MpComputerStatus -ErrorAction Stop; if ($null -eq $s -or $null -eq $s.RealTimeProtectionEnabled) { throw 'Defender real-time protection status is unavailable; no change made.' }; if ($s.RealTimeProtectionEnabled -eq $false) { Write-Host 'Defender real-time protection was already off or Defender is not active; no change made.'; exit 0 }; Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop; $s=Get-MpComputerStatus -ErrorAction Stop; if ($null -eq $s -or $s.RealTimeProtectionEnabled -ne $false) { throw 'Defender did not report real-time protection disabled. Check Windows Security, policy, tamper protection, or another antivirus.' }; Write-Host 'Defender reports real-time protection disabled. Re-enable it after use; Windows may also turn it back on.'; exit 0 } catch { Write-Host ('Unable to disable real-time protection: ' + $_.Exception.Message); exit 1 }"
+exit /b %errorlevel%
+
 :t_filterkeys
 reg add "HKCU\Control Panel\Accessibility\Keyboard Response" /v FilterKeysActive /t REG_DWORD /d 0 /f >nul 2>&1
 reg add "HKCU\Control Panel\Accessibility\StickyKeys" /v StickyKeysActive /t REG_DWORD /d 0 /f >nul 2>&1
@@ -1368,6 +1460,7 @@ exit /b 0
 
 :: ---------- 5g. Optimization submenu ----------
 :OPTMENU
+set "SUMMARY_RETURN=OPTMENU"
 cls
 echo.
 echo  %C_H%------------------------------------------------------------------
@@ -1382,9 +1475,9 @@ echo    %C_OK%[5]%C_RESET% %C_INFO%Restart Explorer shell%C_RESET%    %C_DIM%- f
 echo    %C_OK%[6]%C_RESET% %C_INFO%Disable hibernation%C_RESET%       %C_DIM%- frees several GB  %C_WARN%(also disables Fast Startup)%C_RESET%
 echo    %C_OK%[7]%C_RESET% %C_INFO%Enable hibernation %C_DIM%(undo 6)%C_RESET%
 echo    %C_OK%[8]%C_RESET% %C_INFO%Restore startup delay %C_DIM%(undo 4)%C_RESET%
-echo    %C_OK%[9]%C_RESET% %C_INFO%Back to main menu%C_RESET%
+echo    %C_OK%[0]%C_RESET% %C_INFO%Back to main menu%C_RESET%
 echo.
-choice /c 123456789 /n /m "  Choose an option [1-9]: "
+choice /c 123456780 /n /m "  Choose an option [1-8, 0=Back]: "
 if errorlevel 9 goto MENU
 if errorlevel 8 goto OPT_STARTREST
 if errorlevel 7 goto OPT_HIBON
@@ -1394,6 +1487,7 @@ if errorlevel 4 goto OPT_STARTUP
 if errorlevel 3 goto OPT_PWRBAL
 if errorlevel 2 goto OPT_PWRHIGH
 if errorlevel 1 goto OPT_DRIVES
+goto OPTMENU
 
 :OPT_DRIVES
 cls
@@ -1459,47 +1553,28 @@ echo  %C_H%------------------------------------------------------------------
 echo  %C_H%                  AUTO-CARE  %C_DIM%-  scheduled maintenance%C_H%
 echo  %C_H%------------------------------------------------------------------%C_RESET%
 echo.
-echo    %C_OK%[1]%C_RESET% %C_INFO%Enable weekly auto-care%C_RESET%  %C_DIM%- runs as SYSTEM, no prompts%C_RESET%
+echo    %C_WARN%[1]%C_RESET% %C_INFO%Enable weekly auto-care%C_RESET%  %C_WARN%- unavailable for safety%C_RESET%
 echo    %C_OK%[2]%C_RESET% %C_INFO%Show auto-care status%C_RESET%
 echo    %C_OK%[3]%C_RESET% %C_INFO%Remove auto-care task%C_RESET%
 echo    %C_OK%[0]%C_RESET% %C_INFO%Back to main menu%C_RESET%
 echo.
-echo   %C_DIM%Auto-care = full REPAIR ALL pipeline, unattended (30-90 min):%C_RESET%
-echo   %C_DIM%services + cleanup + DISM/SFC + drive optimize, restore point first.%C_RESET%
-echo   %C_DIM%Log of auto runs: %SystemDrive%\ASC_Logs\Cleanup.log%C_RESET%
+echo   %C_WARN%New scheduling is disabled: a SYSTEM task must not run a script%C_RESET%
+echo   %C_WARN%from a potentially user-writable location. Remove old tasks below.%C_RESET%
+echo   %C_DIM%Existing auto-run log: %SystemDrive%\ASC_Logs\Cleanup.log%C_RESET%
 echo.
 choice /c 1230 /n /m "  Choose an option [1-3, 0=Back]: "
 if errorlevel 4 goto MENU
 if errorlevel 3 goto AUTO_REMOVE
 if errorlevel 2 goto AUTO_STATUS
 if errorlevel 1 goto AUTO_ENABLE
+goto AUTOMENU
 
 :AUTO_ENABLE
 cls
 echo.
-echo  %C_H%Enable weekly auto-care%C_H%
-echo.
-echo   The script runs the full REPAIR ALL pipeline unattended - no
-echo   prompts, no waiting. A restore point is created first, as always.
-echo.
-choice /c 1234567 /n /m "  Which day? [1=Sun 2=Mon 3=Tue 4=Wed 5=Thu 6=Fri 7=Sat]: "
-if errorlevel 7 set "ASC_DAY=SAT"
-if errorlevel 6 set "ASC_DAY=FRI"
-if errorlevel 5 set "ASC_DAY=THU"
-if errorlevel 4 set "ASC_DAY=WED"
-if errorlevel 3 set "ASC_DAY=TUE"
-if errorlevel 2 set "ASC_DAY=MON"
-set "ASC_DAY=SUN"
-call :confirm "Schedule auto-care every %ASC_DAY% at 02:00?"
-if errorlevel 2 goto AUTOMENU
-schtasks /create /tn "ASC_AutoCare" /tr "\"%~f0\" -auto" /sc weekly /d %ASC_DAY% /st 02:00 /ru SYSTEM /f
-if errorlevel 1 (
-    echo   %C_ERR%Could not create the scheduled task - see the error above.%C_RESET%
-) else (
-    echo   %C_OK%Auto-care scheduled: every %ASC_DAY% at 02:00.%C_RESET%
-    echo   %C_DIM%Change the time in Task Scheduler -^> ASC_AutoCare.%C_RESET%
-    >>"%LOG_FILE%" echo [%TIME:~0,8%] AUTO-CARE task created - weekly %ASC_DAY% 02:00
-)
+echo   %C_WARN%New Auto-Care scheduling is disabled for safety.%C_RESET%
+echo   A SYSTEM task must only run code from an administrator-protected location.
+echo   Existing scheduled tasks are not removed automatically; use option 3.
 echo.
 pause
 goto AUTOMENU
@@ -1580,9 +1655,11 @@ echo  -------------------------------------------------------------%C_RESET%
 echo.
 if defined AUTO_MODE goto END_AUTO
 pause
-goto MENU
+if not defined SUMMARY_RETURN set "SUMMARY_RETURN=MENU"
+goto %SUMMARY_RETURN%
 :END_AUTO
 >>"%LOG_FILE%" echo ---- AUTO CARE (unattended) finished %DATE% %TIME% ----
+if %FAIL_NUM% gtr 0 exit /b 1
 exit /b 0
 
 :DISKINFO
@@ -1619,6 +1696,7 @@ exit /b 0
 echo   %C_WARN%?%C_RESET% %~1
 choice /c yn /n /m "   Continue [Y/N]: "
 set "CONFIRM_RC=%errorlevel%"
+if not "%CONFIRM_RC%"=="1" set "CONFIRM_RC=2"
 if "%CONFIRM_RC%"=="2" (
     echo   %C_DIM%Cancelled.%C_RESET%
     >>"%LOG_FILE%" echo [%TIME:~0,8%] INFO - user cancelled: %~1
@@ -2063,10 +2141,14 @@ exit /b 0
 :t_storereset
 echo.
 echo         %C_DIM%Running WSReset - a Store window may open, keep it in front...%C_RESET%
-start /wait wsreset.exe
+start "" /wait wsreset.exe
 set "WS_RC=%errorlevel%"
-echo         %C_OK%Store cache reset done - if it opened, test downloading an app.%C_RESET%
 >>"%LOG_FILE%" echo [%TIME:~0,8%] wsreset finished - exit code %WS_RC%
+if not "%WS_RC%"=="0" (
+    echo         %C_ERR%WSReset failed or could not be launched - exit code %WS_RC%.%C_RESET%
+    exit /b %WS_RC%
+)
+echo         %C_DIM%WSReset finished - verify the Store works in the affected account.%C_RESET%
 exit /b 0
 
 :: -- Time sync fix: needs internet (talks to Microsoft NTP) --
@@ -2083,8 +2165,10 @@ net stop w32time >nul 2>&1
 net start w32time >nul 2>&1
 w32tm /resync /force
 set "TIME_RC=%errorlevel%"
+>>"%LOG_FILE%" echo [%TIME:~0,8%] time sync finished - exit code %TIME_RC%
 if not "%TIME_RC%"=="0" (
-    echo         %C_WARN%Sync command returned %TIME_RC% - the clock may need a moment.%C_RESET%
+    echo         %C_ERR%Time sync failed - exit code %TIME_RC%. Check the time service and configured time source.%C_RESET%
+    exit /b %TIME_RC%
 )
 echo         %C_DIM%Verify: clock in the taskbar; timezone in Settings.%C_RESET%
 exit /b 0

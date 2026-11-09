@@ -34,12 +34,13 @@ Windows built-in (`sfc`, `dism`, `powercfg`, `reg`, `sc`, `netsh`, …).
 | `A` | **Windows tweaks** — each with Apply/Restore: Photo Viewer, extensions, hidden files, Take Ownership, shortcut arrows, Bing off, menu speed, GameDVR off, lock screen |
 | `B` | **Optimization** — drive TRIM/defrag, power plans, startup delay, Explorer restart, hibernation on/off |
 | `C` | **Disk space overview** |
-| `D` | **Auto-Care scheduler** — enable/status/remove weekly unattended maintenance |
+| `D` | **Auto-Care scheduler** — inspect or remove an existing task; new scheduling is disabled for safety |
 
-Every destructive question is a real Y/N confirmation. `N` actually cancels
-(fixed in v3.0 — in v2.9 every "No" silently fell through as "Yes").
+Cleanup runs ask for confirmation. A confirmation proceeds only on an explicit
+`Y`; `N` or an input error cancels. Not every settings change has a separate
+confirmation, so review each option carefully.
 
-## Troubleshooting section (menu `9`, keys `A`–`I`)
+## Troubleshooting section (menu `9`, keys `A`–`J`)
 
 | Key | Tool | What it does |
 |-----|------|--------------|
@@ -52,47 +53,45 @@ Every destructive question is a real Y/N confirmation. `N` actually cancels
 | `G` | Battery drains fast | Full battery report (HTML, opened in browser), last wake event, wake-armed devices |
 | `H` | Windows license | Activation status via `slmgr /xpr` |
 | `I` | Keyboard acts weird | Resets Filter / Sticky / Toggle keys (the "types on its own" fix) |
+| `J` | Microsoft Defender | Show status and enable or disable Defender real-time protection, with confirmation |
 
-`C`–`H` are read-only diagnostics; `A`, `B` and `I` change settings (with
-confirmation where appropriate).
+`C`–`H` are read-only diagnostics; `A`, `B`, `I` and `J` can change settings.
 
-## Auto-Care (scheduled unattended maintenance) — menu `D`
+**Defender:** option `J` controls only Microsoft Defender Antivirus real-time
+protection, not the entire Defender product or another antivirus. Turning it
+off reduces protection. This script does **not** schedule re-enabling it; turn
+it back on after use. Windows may re-enable it automatically. Tamper protection,
+organization policy or passive mode can prevent changes; the tool reports an
+error if the requested state cannot be confirmed. Verify status in Windows
+Security.
 
-Lets the script maintain itself on a schedule, with no prompts.
+## Auto-Care (menu `D`)
 
-- **How it works** — a Windows scheduled task (`ASC_AutoCare`) runs
-  `cleanup_advanced.bat -auto` weekly. The `-auto` flag runs the **full
-  REPAIR ALL pipeline unattended**: services → cleanup → DISM/SFC → drive
-  optimize, then exits. No menu, no Y/N prompts.
-- **Runs as SYSTEM** — so it works even when you're logged off and stores
-  **no password** (nothing for an attacker to read).
-- **Default time** — 02:00 on the day you pick. Change the day/time later in
-  Task Scheduler → `ASC_AutoCare` if you prefer.
-- **Restore point first** — every run still creates one, exactly like a
-  manual run.
-- **Log** — auto runs run as SYSTEM, so they log to a machine-wide file:
-  `%SystemDrive%\ASC_Logs\Cleanup.log` (e.g. `C:\ASC_Logs\Cleanup.log`).
-  Manual (your-account) runs still log to `%USERPROFILE%\CleanupLogs\`.
-- **Manage it** — menu `D`: `1` enable, `2` show status, `3` remove.
+**Creating new Auto-Care tasks is disabled.** The old scheduler registered the
+current script path to run as SYSTEM, even when that path could be writable by
+an unprivileged user. Existing tasks are **not** removed automatically. Use
+menu `D` → `2` to inspect an existing task and `3` to remove it, or manage
+`ASC_AutoCare` in Task Scheduler. Review the task action and its file and
+parent-directory permissions.
 
-Run it unattended manually any time with:
-
-```bat
-cleanup_advanced.bat -auto
-```
+The `-auto` command-line mode still runs the maintenance pipeline unattended
+and can modify services and delete crash dumps. It is not recommended for
+unattended use until the remaining safety issues in
+[DEEP_AUDIT_2026-11-09.md](DEEP_AUDIT_2026-11-09.md) are addressed. Auto runs
+under SYSTEM use `%SystemDrive%\ASC_Logs\Cleanup.log`.
 
 ## Safety model (v3.0)
 
-- **Restore point** — a System Restore point (`Before Advanced System Care
-  <timestamp>`) is created at session start when System Restore is available.
-- **Registry backup** — every key the script can modify is exported to
-  `%USERPROFILE%\CleanupLogs\regbak\*.reg` at session start. Double-click a
-  `.reg` file to restore that key.
-- **Guarded deletes** — every mass `del`/`rd` verifies its environment
-  variable (`%TEMP%`, `%SystemRoot%`, …) before expanding the path.
-- **Non-destructive WU reset** — `SoftwareDistribution`/`catroot2` are
-  *renamed* to `*.old` (kept for comparison), never deleted outright; if a
-  folder is locked the reset aborts and restarts the services.
+- **Restore point** — the script attempts to create a System Restore point at
+  session start. Creation may fail or be throttled; verify it independently.
+- **Registry backup** — selected keys are exported to
+  `%USERPROFILE%\CleanupLogs\regbak\*.reg`, but coverage is incomplete and
+  later sessions overwrite the files. Importing them is not a complete undo.
+- **Delete guards** — several cleanup tasks check that environment variables
+  are nonempty; they do not validate that the resulting paths are safe.
+- **WU reset** — the current `SoftwareDistribution`/`catroot2` folders are
+  renamed to `*.old`, but an existing `*.old` is deleted first. Failures can
+  leave a partial reset; back up independently before running it.
 - **Elevation-profile warning** — if UAC runs the script as a *different*
   admin account, the script warns that user-level tweaks (menu `A`) apply to
   that admin's profile.
@@ -104,20 +103,22 @@ cleanup_advanced.bat -auto
 
 | What | Where |
 |------|-------|
-| Session log (appended, rotated at 1 MB) | `%USERPROFILE%\CleanupLogs\Cleanup.log` |
+| Session log (appended; deleted when over 1 MB) | `%USERPROFILE%\CleanupLogs\Cleanup.log` |
 | Registry backups | `%USERPROFILE%\CleanupLogs\regbak\*.reg` |
 | SFC output capture | `%USERPROFILE%\CleanupLogs\sfc_out.txt` |
-| Restore points | `rstrui.exe` → "Before Advanced System Care …" |
+| Restore points | System Restore, if a point was successfully created |
 | WU reset leftovers | `%SystemRoot%\SoftwareDistribution.old`, `%SystemRoot%\System32\catroot2.old` (delete by hand once updates work) |
 
 ## Undos
 
-- **Menu A tweaks** — choose the tweak again → `R` (Restore default).
+- **Menu A tweaks** — choose the tweak again → `R` (Restore default); this
+  does not necessarily restore your prior custom settings.
 - **Hibernation** — menu `B` → `7` (Enable hibernation).
 - **Startup delay** — menu `B` → `8` (Restore default startup delay).
-- **Registry changes** — double-click the matching `.reg` file in `regbak`.
-- **Everything** — System Restore → pick the `Before Advanced System Care`
-  point.
+- **Registry changes** — exported `.reg` files cover only selected keys and
+  merge values on import; they are not a complete rollback.
+- **System changes** — a verified System Restore point may undo some changes;
+  it does not replace backups of personal data or deleted crash dumps.
 
 ## Known limitations
 
@@ -139,6 +140,16 @@ cleanup_advanced.bat -auto
 
 ## Versioning
 
+- **v3.2.7** (2026-11-09) — Added Defender real-time protection status and
+  confirmed on/off controls in menu `9` → `J`.
+- **v3.2.6** (2026-11-09) — Corrected the elevation-profile comparison,
+  Store and time-sync error reporting, and diagnostic color-reset text. The
+  PowerShell EXE repair now uses a provider-qualified classes path and stops
+  on core repair errors. Windows runtime validation is still required.
+- **v3.2.5** (2026-11-09) — Safer menu routing and cancellation, cleanup
+  confirmations, return to the originating submenu, Optimization `0=Back`,
+  and new Auto-Care scheduling disabled pending a secure installation design.
+  Existing Auto-Care tasks must be removed separately.
 - **v3.2.4** (2026-09-19) — Hardening: the summary
   screen's auto-mode exit moved to its own label, so a manual
   run can never be killed from that screen (protects against
